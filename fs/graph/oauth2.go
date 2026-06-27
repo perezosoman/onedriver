@@ -89,10 +89,13 @@ func (a *Auth) FromFile(file string) error {
 func (a *Auth) Refresh() {
 	if a.ExpiresAt <= time.Now().Unix() {
 		oldTime := a.ExpiresAt
-		postData := strings.NewReader("client_id=" + a.ClientID +
-			"&redirect_uri=" + a.RedirectURL +
-			"&refresh_token=" + a.RefreshToken +
-			"&grant_type=refresh_token")
+		data := url.Values{
+			"client_id":     {a.ClientID},
+			"redirect_uri":  {a.RedirectURL},
+			"refresh_token": {a.RefreshToken},
+			"grant_type":    {"refresh_token"},
+		}
+		postData := strings.NewReader(data.Encode())
 		resp, err := http.Post(a.TokenURL,
 			"application/x-www-form-urlencoded",
 			postData)
@@ -135,7 +138,7 @@ func getAuthURL(a AuthConfig) string {
 		"?client_id=" + a.ClientID +
 		"&scope=" + url.PathEscape("user.read files.readwrite.all offline_access") +
 		"&response_type=code" +
-		"&redirect_uri=" + a.RedirectURL
+		"&redirect_uri=" + url.QueryEscape(a.RedirectURL)
 }
 
 // getAuthCodeHeadless has the user perform authentication in their own browser
@@ -167,10 +170,13 @@ func parseAuthCode(authURL string) (string, error) {
 
 // Exchange an auth code for a set of access tokens (returned as a new Auth struct).
 func getAuthTokens(a AuthConfig, authCode string) *Auth {
-	postData := strings.NewReader("client_id=" + a.ClientID +
-		"&redirect_uri=" + a.RedirectURL +
-		"&code=" + authCode +
-		"&grant_type=authorization_code")
+	data := url.Values{
+		"client_id":    {a.ClientID},
+		"redirect_uri": {a.RedirectURL},
+		"code":         {authCode},
+		"grant_type":   {"authorization_code"},
+	}
+	postData := strings.NewReader(data.Encode())
 	resp, err := http.Post(a.TokenURL,
 		"application/x-www-form-urlencoded",
 		postData)
