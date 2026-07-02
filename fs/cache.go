@@ -21,13 +21,14 @@ import (
 type Filesystem struct {
 	fuse.RawFileSystem
 
-	metadata  sync.Map
-	db        *bolt.DB
-	content   *LoopbackCache
-	auth      *graph.Auth
-	root      string // the id of the filesystem's root item
-	deltaLink string
-	uploads   *UploadManager
+	metadata    sync.Map
+	db          *bolt.DB
+	content     *LoopbackCache
+	auth        *graph.Auth
+	root        string // the id of the filesystem's root item
+	deltaLink   string
+	uploads     *UploadManager
+	cacheMaxAge time.Duration
 
 	sync.RWMutex
 	offline    bool
@@ -106,6 +107,7 @@ func NewFilesystem(auth *graph.Auth, cacheDir string) *Filesystem {
 		content:       content,
 		db:            db,
 		auth:          auth,
+		cacheMaxAge:   5 * time.Minute,
 		opendirs:      make(map[uint64][]*Inode),
 	}
 
@@ -591,4 +593,51 @@ func (f *Filesystem) SerializeAll() {
 		}
 		return nil
 	})
+}
+
+// SetCacheMaxAge enables automatic cache eviction for content files older than
+// maxAge. If maxAge is zero or negative, eviction is disabled.
+func (f *Filesystem) SetCacheMaxAge(maxAge time.Duration) {
+	f.cacheMaxAge = maxAge
+	if maxAge > 0 {
+		go f.cacheCleanupLoop(10 * time.Minute)
+	}
+}
+
+// cacheCleanupLoop periodically removes cached content files that exceed the
+// configured max age. Only files that are not currently open are evicted.
+func (f *Filesystem) cacheCleanupLoop(interval time.Duration) {
+	log.Info().Dur("maxAge", f.cacheMaxAge).Msg("Starting cache cleanup loop.")
+	for {
+		f.evictExpired()
+		time.Sleep(interval)
+	}
+}
+
+// evictExpired removes content files whose mtime exceeds the configured
+// cacheMaxAge. Files currently open are skipped.
+func (f *Filesystem) evictExpired() {
+	entries, err := os.ReadDir(f.content.directory)
+	if err != nil {
+		log.Error().Err(err).Str("dir", f.content.directory).Msg("Failed to read cache directory.")
+		return
+	}
+	cutoff := time.Now().Add(-f.cacheMaxAge)
+	log.Info().
+		Time("cutoff", cutoff).
+		Msg("Cleaning cache content.")
+	var evicted int
+	for _, entry := range entries {
+		info, err := entry.Info()
+		if err != nil {
+			continue
+		}
+		if info.ModTime().Before(cutoff) && !f.content.IsOpen(entry.Name()) {
+			f.content.Delete(entry.Name())
+			evicted++
+		}
+	}
+	if evicted > 0 {
+		log.Info().Int("count", evicted).Msg("Evicted cached content files.")
+	}
 }
