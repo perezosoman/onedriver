@@ -13,6 +13,7 @@ import (
 	"dario.cat/mergo"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
+	"github.com/zalando/go-keyring"
 )
 
 // these are default values if not specified
@@ -67,7 +68,17 @@ type AuthError struct {
 // ToFile writes auth tokens to a file
 func (a Auth) ToFile(file string) error {
 	a.path = file
-	byteData, _ := json.Marshal(a)
+
+	// store refresh token in system keyring instead of on disk
+	if a.RefreshToken != "" {
+		if err := keyring.Set("onedriver", file, a.RefreshToken); err != nil {
+			log.Warn().Err(err).Msg("Failed to store refresh token in keyring")
+		}
+	}
+
+	stored := a
+	stored.RefreshToken = ""
+	byteData, _ := json.Marshal(stored)
 	return os.WriteFile(file, byteData, 0600)
 }
 
@@ -81,6 +92,11 @@ func (a *Auth) FromFile(file string) error {
 	err = json.Unmarshal(contents, a)
 	if err != nil {
 		return err
+	}
+
+	// load refresh token from system keyring (fallback: keep whatever was in the JSON)
+	if token, err := keyring.Get("onedriver", file); err == nil {
+		a.RefreshToken = token
 	}
 	return a.applyDefaults()
 }
