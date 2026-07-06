@@ -23,7 +23,7 @@ char *uri_get_host(char *uri) {
             start = i + 1;
         } else if (start > 0) {
             int len = i - start;
-            char *host = malloc(len);
+            char *host = malloc(len + 1);
             strncpy(host, uri + start, len);
             host[len] = '\0';
             return host;
@@ -80,12 +80,15 @@ static gboolean web_view_load_failed_tls(WebKitWebView *web_view, char *failing_
         reason = "G_TLS_CERTIFICATE_GENERIC_ERROR - Some other error occurred validating "
                  "the certificate.";
         break;
-    default:
-        snprintf(reason, 256,
+    default: {
+        static char buf[256];
+        snprintf(buf, sizeof(buf),
                  "Multiple failures (%d) - There were multiple errors during certificate "
                  "verification.",
                  errors);
+        reason = buf;
         break;
+    }
     }
 
     g_print("Webkit load failed with TLS errors for %s : %s\n", failing_uri, reason);
