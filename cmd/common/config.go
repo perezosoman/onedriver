@@ -3,6 +3,7 @@ package common
 import (
 	"os"
 	"path/filepath"
+	"time"
 
 	"dario.cat/mergo"
 	"github.com/jstaf/onedriver/fs/graph"
@@ -11,9 +12,34 @@ import (
 	yaml "gopkg.in/yaml.v3"
 )
 
+// Duration is a time.Duration wrapper that supports YAML (un)marshaling
+// from Go duration strings like "720h", "5m", "30s".
+type Duration time.Duration
+
+// UnmarshalText implements encoding.TextUnmarshaler for YAML parsing.
+func (d *Duration) UnmarshalText(text []byte) error {
+	parsed, err := time.ParseDuration(string(text))
+	if err != nil {
+		return err
+	}
+	*d = Duration(parsed)
+	return nil
+}
+
+// MarshalText implements encoding.TextMarshaler for YAML serialization.
+func (d Duration) MarshalText() ([]byte, error) {
+	return []byte(time.Duration(d).String()), nil
+}
+
+// AsDuration returns the underlying time.Duration.
+func (d Duration) AsDuration() time.Duration {
+	return time.Duration(d)
+}
+
 type Config struct {
-	CacheDir         string `yaml:"cacheDir"`
-	LogLevel         string `yaml:"log"`
+	CacheDir         string   `yaml:"cacheDir"`
+	LogLevel         string   `yaml:"log"`
+	CacheMaxAge      Duration `yaml:"cacheMaxAge"`
 	graph.AuthConfig `yaml:"auth"`
 }
 

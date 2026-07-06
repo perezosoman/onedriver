@@ -125,6 +125,10 @@ func main() {
 	log.Info().Msgf("onedriver %s", common.Version())
 	auth := graph.Authenticate(config.AuthConfig, authPath, *headless)
 	filesystem := fs.NewFilesystem(auth, cachePath)
+	log.Info().Msgf("cacheMaxAge value: %s", time.Duration(config.CacheMaxAge))
+	if config.CacheMaxAge > 0 {
+		filesystem.SetCacheMaxAge(config.CacheMaxAge.AsDuration())
+	}
 	go filesystem.DeltaLoop(30 * time.Second)
 	xdgVolumeInfo(filesystem, auth)
 

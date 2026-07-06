@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"time"
 	"unsafe"
 
 	"github.com/coreos/go-systemd/v22/unit"
@@ -547,11 +548,39 @@ func newSettingsWindow(config *common.Config, configPath string) {
 	})
 	settingsRowCacheDir.PackEnd(cacheDirPicker, false, false, 0)
 
+	// cache max age settings
+	settingsRowCacheMaxAge, _ := gtk.BoxNew(gtk.ORIENTATION_HORIZONTAL, offset)
+	cacheMaxAgeLabel, _ := gtk.LabelNew("Cache max age")
+	settingsRowCacheMaxAge.PackStart(cacheMaxAgeLabel, false, false, 0)
+
+	cacheMaxAgeEntry, _ := gtk.EntryNew()
+	cacheMaxAgeEntry.SetText(config.CacheMaxAge.AsDuration().String())
+	cacheMaxAgeEntry.SetTooltipText("Max age of cached files before eviction. " +
+		"Examples: 720h (30 days), 24h, 30m. Use 0 to disable.")
+	cacheMaxAgeEntry.SetSizeRequest(120, 0)
+	cacheMaxAgeEntry.Connect("activate", func() {
+		text, err := cacheMaxAgeEntry.GetText()
+		if err != nil || text == "" {
+			text = "0"
+		}
+		d, err := time.ParseDuration(text)
+		if err != nil {
+			ui.Dialog("Invalid duration: "+err.Error(), gtk.MESSAGE_ERROR, settingsWindow)
+			cacheMaxAgeEntry.SetText(config.CacheMaxAge.AsDuration().String())
+			return
+		}
+		config.CacheMaxAge = common.Duration(d)
+		log.Debug().Dur("cacheMaxAge", d).Msg("Cache max age changed.")
+		config.WriteConfig(configPath)
+	})
+	settingsRowCacheMaxAge.PackEnd(cacheMaxAgeEntry, false, false, 0)
+
 	// assemble rows
 	settingsWindowBox, _ := gtk.BoxNew(gtk.ORIENTATION_VERTICAL, offset)
 	settingsWindowBox.SetBorderWidth(offset)
 	settingsWindowBox.PackStart(settingsRowLog, true, true, 0)
 	settingsWindowBox.PackStart(settingsRowCacheDir, true, true, 0)
+	settingsWindowBox.PackStart(settingsRowCacheMaxAge, true, true, 0)
 	settingsWindow.Add(settingsWindowBox)
 	settingsWindow.ShowAll()
 }
