@@ -44,6 +44,8 @@ jobs:
           goimports -l .
 
       - name: Copy auth tokens from S3
+        # Skip if AWS credentials are not available (e.g., in forks or personal repos)
+        if: ${{ secrets.AWS_ACCESS_KEY_ID != null && secrets.AWS_SECRET_ACCESS_KEY != null }}
         run: |
           which aws
           aws --version
@@ -54,6 +56,17 @@ jobs:
           AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           ACCOUNT_TYPE: ${{ matrix.account_type }}
+        continue-on-error: true
+
+      - name: Create dummy auth tokens if S3 unavailable
+        if: ${{ secrets.AWS_ACCESS_KEY_ID == '' || secrets.AWS_SECRET_ACCESS_KEY == '' }}
+        run: |
+          echo "⚠️  AWS credentials not available - tests requiring OneDrive authentication will be skipped"
+          # Create a dummy auth tokens file to allow tests to detect missing credentials
+          echo '{}' > .auth_tokens.json
+          # Download dmel.fa directly since we can't get it from S3
+          echo "📥 Downloading dmel.fa from public FTP..."
+          curl -L ftp://ftp.ensemblgenomes.org/pub/metazoa/release-42/fasta/drosophila_melanogaster/dna/Drosophila_melanogaster.BDGP6.22.dna.chromosome.X.fa.gz | gunzip > dmel.fa || echo "Failed to download dmel.fa"
 
       - name: Run tests
         run: |
@@ -70,6 +83,8 @@ jobs:
           sudo unshare -n -S $(id -u) -G $(id -g) ./offline.test -test.v -test.coverprofile=offline.coverage
 
       - name: Copy new auth tokens to S3
+        # Skip if AWS credentials are not available
+        if: ${{ always() && secrets.AWS_ACCESS_KEY_ID != '' && secrets.AWS_SECRET_ACCESS_KEY != '' }}
         run: |
           aws s3 cp .auth_tokens.json s3://fusefs-travis/$ACCOUNT_TYPE/
           aws s3 cp fusefs_tests.log s3://fusefs-travis/$ACCOUNT_TYPE/
@@ -77,7 +92,7 @@ jobs:
           AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           ACCOUNT_TYPE: ${{ matrix.account_type }}
-        if: always()
+        continue-on-error: true
 
       - name: Combine test coverage into single file
         run: |
