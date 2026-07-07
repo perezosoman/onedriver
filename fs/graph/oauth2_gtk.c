@@ -3,6 +3,17 @@
 #include <string.h>
 #include <webkit2/webkit2.h>
 
+/* Global flag: 0 = strict TLS (default), 1 = allow TLS workaround */
+static int g_allow_tls_workaround = 0;
+
+/**
+ * Enable or disable the TLS workaround at runtime.
+ * Must be called before webkit_auth_window().
+ */
+void set_allow_tls_workaround(int allow) {
+    g_allow_tls_workaround = allow;
+}
+
 /**
  * Get the host from a URI
  */
@@ -93,12 +104,26 @@ static gboolean web_view_load_failed_tls(WebKitWebView *web_view, char *failing_
 
     g_print("Webkit load failed with TLS errors for %s : %s\n", failing_uri, reason);
 
-    // something is up with Fedora 35's verification of this particular cert,
-    // so we specifically only allow G_TLS_CERTIFICATE_GENERIC_ERROR for only this cert.
+    // The TLS workaround is only applied when explicitly enabled by the user
+    // (--allow-tls-workaround flag or allowTLSWorkaround: true in config).
+    // By default this block is skipped and the TLS error is treated as fatal.
+    if (!g_allow_tls_workaround) {
+        g_print("[SECURITY] TLS workaround is disabled. "
+                "Authentication will fail. If you are on a system with a known "
+                "certificate verification bug (e.g. Fedora 35 bz#2024296), "
+                "you can enable the workaround with --allow-tls-workaround.\n");
+        return false;
+    }
+
     char *host = uri_get_host(failing_uri);
     if (errors & G_TLS_CERTIFICATE_GENERIC_ERROR &&
+        host != NULL &&
         strncmp("account.live.com", host, 17) == 0) {
         WebKitWebContext *context = webkit_web_view_get_context(web_view);
+        g_print("[SECURITY WARNING] Ignoring G_TLS_CERTIFICATE_GENERIC_ERROR for "
+                "%s as a user-enabled workaround "
+                "(https://bugzilla.redhat.com/show_bug.cgi?id=2024296). "
+                "Do NOT use this option on untrusted networks.\n", failing_uri);
         // allow these failing domains from the webpage and reload
         webkit_web_context_allow_tls_certificate_for_host(context, certificate,
                                                           "account.live.com");
@@ -106,11 +131,12 @@ static gboolean web_view_load_failed_tls(WebKitWebView *web_view, char *failing_
                                                           "acctcdn.msauth.net");
         webkit_web_context_allow_tls_certificate_for_host(context, certificate,
                                                           "acctcdn.msftauth.net");
-        g_print("Ignoring G_TLS_CERTIFICATE_GENERIC_ERROR for this certificate as a "
-                "workaround for https://bugzilla.redhat.com/show_bug.cgi?id=2024296 - "
-                "reloading page.\n");
+        free(host);
         webkit_web_view_reload(web_view);
         return true;
+    }
+    if (host != NULL) {
+        free(host);
     }
     return false;
 }

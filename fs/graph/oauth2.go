@@ -35,10 +35,16 @@ func (a *AuthConfig) applyDefaults() error {
 
 // AuthConfig configures the authentication flow
 type AuthConfig struct {
-	ClientID    string `json:"clientID" yaml:"clientID"`
-	CodeURL     string `json:"codeURL" yaml:"codeURL"`
-	TokenURL    string `json:"tokenURL" yaml:"tokenURL"`
-	RedirectURL string `json:"redirectURL" yaml:"redirectURL"`
+	ClientID            string `json:"clientID" yaml:"clientID"`
+	CodeURL             string `json:"codeURL" yaml:"codeURL"`
+	TokenURL            string `json:"tokenURL" yaml:"tokenURL"`
+	RedirectURL         string `json:"redirectURL" yaml:"redirectURL"`
+	// AllowTLSWorkaround disables strict TLS certificate verification for the
+	// Microsoft authentication domains during the OAuth2 flow. This exists as
+	// a workaround for a known certificate-verification bug on some Fedora
+	// releases (https://bugzilla.redhat.com/show_bug.cgi?id=2024296).
+	// WARNING: enabling this weakens security — never use it on untrusted networks.
+	AllowTLSWorkaround bool `json:"allowTLSWorkaround" yaml:"allowTLSWorkaround"`
 }
 
 // Auth represents a set of oauth2 authentication tokens

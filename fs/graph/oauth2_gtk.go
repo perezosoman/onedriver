@@ -19,6 +19,16 @@ import (
 // Fetch the auth code required as the first part of oauth2 authentication. Uses
 // webkit2gtk to create a popup browser.
 func getAuthCode(a AuthConfig, accountName string) string {
+	// Propagate the TLS workaround setting to the C layer before opening the window.
+	// This is 0 (strict TLS) by default; only 1 when the user explicitly opts in.
+	if a.AllowTLSWorkaround {
+		log.Warn().Msg("TLS workaround enabled: certificate verification is relaxed " +
+			"for Microsoft auth domains. Do NOT use this on untrusted networks.")
+		C.set_allow_tls_workaround(1)
+	} else {
+		C.set_allow_tls_workaround(0)
+	}
+
 	cAuthURL := C.CString(getAuthURL(a))
 	cAccountName := C.CString(accountName)
 	cResponse := C.webkit_auth_window(cAuthURL, cAccountName)

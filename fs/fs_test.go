@@ -199,6 +199,9 @@ func TestAppend(t *testing.T) {
 			t.Fatalf("File text was wrong. Got \"%s\", wanted \"append\"\n", scanned)
 		}
 	}
+	if err := scanner.Err(); err != nil {
+		require.NoErrorf(t, err, "scanner failed while reading test file : %s", fname)
+	}
 	if counter != 5 {
 		t.Fatalf("Got wrong number of lines (%d), expected 5\n", counter)
 	}
@@ -226,6 +229,9 @@ func TestTruncate(t *testing.T) {
 	}
 	if counter != 1 {
 		t.Fatalf("Got wrong number of lines (%d), expected 1\n", counter)
+	}
+	if err := scanner.Err(); err != nil {
+		require.NoError(t, err)
 	}
 }
 

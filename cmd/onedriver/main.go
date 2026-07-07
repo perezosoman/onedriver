@@ -59,6 +59,11 @@ func main() {
 	versionFlag := flag.BoolP("version", "v", false, "Display program version.")
 	debugOn := flag.BoolP("debug", "d", false, "Enable FUSE debug logging. "+
 		"This logs communication between onedriver and the kernel.")
+	allowTLSWorkaround := flag.Bool("allow-tls-workaround", false,
+		"Relax TLS certificate verification for Microsoft auth domains during the OAuth2 "+
+			"flow. Only needed on systems with a known certificate-verification bug "+
+			"(e.g. Fedora 35, https://bugzilla.redhat.com/show_bug.cgi?id=2024296). "+
+			"WARNING: never use this on untrusted networks.")
 	help := flag.BoolP("help", "h", false, "Displays this help message.")
 	flag.Usage = usage
 	flag.Parse()
@@ -79,6 +84,11 @@ func main() {
 	}
 	if *logLevel != "" {
 		config.LogLevel = *logLevel
+	}
+	// CLI flag takes precedence over config file; once enabled it cannot be
+	// disabled via config (intentional: explicit opt-in only).
+	if *allowTLSWorkaround {
+		config.AuthConfig.AllowTLSWorkaround = true
 	}
 
 	zerolog.SetGlobalLevel(common.StringToLevel(config.LogLevel))
