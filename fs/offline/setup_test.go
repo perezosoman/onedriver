@@ -25,6 +25,21 @@ const (
 
 var auth *graph.Auth
 
+// hasValidAuthTokens verifies if .auth_tokens.json contains valid credentials
+func hasValidAuthTokens(path string) bool {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return false
+	}
+	
+	content := strings.TrimSpace(string(data))
+	if content == "" || content == "{}" || len(content) < 50 {
+		return false
+	}
+	
+	return true
+}
+
 // Like the graph package, but designed for running tests offline.
 func TestMain(m *testing.M) {
 	if wd, _ := os.Getwd(); strings.HasSuffix(wd, "/offline") {
@@ -37,7 +52,14 @@ func TestMain(m *testing.M) {
 	exec.Command("fusermount3", "-uz", mountLoc).Run()
 	os.Mkdir(mountLoc, 0755)
 
-	auth = graph.Authenticate(graph.AuthConfig{}, ".auth_tokens.json", false)
+	// Check if we have valid auth tokens before attempting offline tests
+	authTokenPath := ".auth_tokens.json"
+	if !hasValidAuthTokens(authTokenPath) {
+		fmt.Println("⚠️  Skipping offline tests - OneDrive credentials not available (expected in CI without AWS S3)")
+		os.Exit(0)
+	}
+
+	auth = graph.Authenticate(graph.AuthConfig{}, authTokenPath, false)
 	inode, err := graph.GetItem("root", auth)
 	if inode != nil || !graph.IsOffline(err) {
 		fmt.Println("These tests must be run offline.")

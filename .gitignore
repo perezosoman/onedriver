@@ -40,6 +40,10 @@ vendor/
 util-linux*
 unshare
 
+# Agent skill configurations (local-only, not committed)
+.qwen/
+.agents/
+
 # debian build stuff
 debian/debhelper-build-stamp
 debian/*.substvars

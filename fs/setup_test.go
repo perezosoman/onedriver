@@ -27,9 +27,42 @@ const (
 	retrySeconds = 60 * time.Second //lint:ignore ST1011 a
 )
 
+// checkValidAuthTokens verifies if .auth_tokens.json contains valid credentials
+func checkValidAuthTokens(path string) bool {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		log.Warn().Err(err).Msg("Could not read auth tokens file")
+		return false
+	}
+	
+	// Check if file is empty or just "{}"
+	content := strings.TrimSpace(string(data))
+	if content == "" || content == "{}" {
+		log.Warn().Msg("Auth tokens file is empty or contains only empty JSON")
+		return false
+	}
+	
+	// Basic check - valid tokens should have more content
+	if len(content) < 50 {
+		log.Warn().Msgf("Auth tokens file seems invalid (too short: %d bytes)", len(content))
+		return false
+	}
+	
+	return true
+}
+
+// requireAuth skips the test if OneDrive authentication is not available
+func requireAuth(t *testing.T) {
+	if skipAuthTests {
+		t.Skip("Skipping test - OneDrive credentials not available (expected in CI without AWS S3)")
+	}
+}
+
 var (
-	auth *graph.Auth
-	fs   *Filesystem
+	auth               *graph.Auth
+	fs                 *Filesystem
+	hasValidAuth       bool // flag to track if we have valid OneDrive credentials
+	skipAuthTests      bool // flag to skip tests requiring OneDrive
 )
 
 // Tests are done in the main project directory with a mounted filesystem to
@@ -58,7 +91,22 @@ func TestMain(m *testing.M) {
 	log.Logger = log.Output(zerolog.ConsoleWriter{Out: f, TimeFormat: "15:04:05"})
 	defer f.Close()
 
-	auth = graph.Authenticate(graph.AuthConfig{}, ".auth_tokens.json", false)
+	// Check if we have valid auth tokens before attempting to authenticate
+	authTokenPath := ".auth_tokens.json"
+	hasValidAuth = checkValidAuthTokens(authTokenPath)
+	
+	if !hasValidAuth {
+		log.Warn().Msg("⚠️  No valid OneDrive credentials found - tests requiring OneDrive will be skipped")
+		log.Warn().Msg("This is expected in CI environments without AWS S3 access")
+		skipAuthTests = true
+		
+		// Run minimal tests that don't require OneDrive connection
+		fmt.Println("⚠️  Running in offline mode - OneDrive-dependent tests will be skipped")
+		code := m.Run()
+		os.Exit(code)
+	}
+
+	auth = graph.Authenticate(graph.AuthConfig{}, authTokenPath, false)
 	fs = NewFilesystem(auth, filepath.Join(testDBLoc, "test"))
 	server, _ := fuse.NewServer(
 		fs,
