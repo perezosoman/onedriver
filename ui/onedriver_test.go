@@ -57,6 +57,12 @@ func TestHomeEscapeUnescape(t *testing.T) {
 func TestGetAccountName(t *testing.T) {
 	t.Parallel()
 
+	// Skip if auth tokens are not available (e.g. CI without AWS S3 credentials)
+	authData, err := os.ReadFile(".auth_tokens.json")
+	if err != nil || len(authData) < 50 {
+		t.Skip("Skipping test - OneDrive credentials not available")
+	}
+
 	wd, _ := os.Getwd()
 	escaped := unit.UnitNamePathEscape(filepath.Join(wd, "mount"))
 
@@ -71,6 +77,6 @@ func TestGetAccountName(t *testing.T) {
 		exec.Command("cp", ".auth_tokens.json", dest).Run()
 	}
 
-	_, err := GetAccountName(filepath.Join(cacheDir, "onedriver"), escaped)
+	_, err = GetAccountName(filepath.Join(cacheDir, "onedriver"), escaped)
 	assert.NoError(t, err)
 }

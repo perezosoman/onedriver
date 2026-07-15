@@ -15,6 +15,7 @@ import (
 
 // TestUploadSession verifies that the basic functionality of uploads works correctly.
 func TestUploadSession(t *testing.T) {
+	requireAuth(t)
 	t.Parallel()
 	testDir, err := fs.GetPath("/onedriver_tests", auth)
 	require.NoError(t, err)
@@ -66,6 +67,7 @@ func TestUploadSession(t *testing.T) {
 // the filesystem itself to perform the uploads instead of testing the internal upload
 // functions directly
 func TestUploadSessionSmallFS(t *testing.T) {
+	requireAuth(t)
 	t.Parallel()
 	data := []byte("super special data for upload test 2")
 	err := os.WriteFile(filepath.Join(TestDir, "uploadSessionSmallFS.txt"), data, 0644)
@@ -104,6 +106,7 @@ func TestUploadSessionSmallFS(t *testing.T) {
 // copy large file inside onedrive mount, then verify that we can still
 // access selected lines
 func TestUploadSessionLargeFS(t *testing.T) {
+	requireAuth(t)
 	t.Parallel()
 	fname := filepath.Join(TestDir, "dmel.fa")
 	require.NoError(t, exec.Command("cp", "dmel.fa", fname).Run())
