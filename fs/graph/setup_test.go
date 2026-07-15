@@ -16,14 +16,19 @@ func hasValidAuthTokens(path string) bool {
 	if err != nil {
 		return false
 	}
-	
+
 	content := strings.TrimSpace(string(data))
 	if content == "" || content == "{}" || len(content) < 50 {
 		return false
 	}
-	
+
 	return true
 }
+
+// AuthAvailable is set by TestMain and indicates whether valid OneDrive
+// credentials were found. Tests that require authentication should call
+// t.Skip() when this is false.
+var AuthAvailable bool
 
 func TestMain(m *testing.M) {
 	os.Chdir("../..")
@@ -34,19 +39,18 @@ func TestMain(m *testing.M) {
 
 	// Check if we have valid auth tokens
 	authTokenPath := ".auth_tokens.json"
-	if !hasValidAuthTokens(authTokenPath) {
-		fmt.Println("⚠️  Skipping graph tests - OneDrive credentials not available (expected in CI without AWS S3)")
-		os.Exit(0)
+	if hasValidAuthTokens(authTokenPath) {
+		AuthAvailable = true
+		auth := Authenticate(AuthConfig{}, authTokenPath, false)
+		user, _ := GetUser(auth)
+		drive, _ := GetDrive(auth)
+		log.Info().
+			Str("account", user.UserPrincipalName).
+			Str("type", drive.DriveType).
+			Msg("Starting tests")
+	} else {
+		fmt.Println("⚠️  OneDrive credentials not available — authenticated tests will be skipped")
 	}
-
-	// auth and log account metadata so we're extra sure who we're testing against
-	auth := Authenticate(AuthConfig{}, authTokenPath, false)
-	user, _ := GetUser(auth)
-	drive, _ := GetDrive(auth)
-	log.Info().
-		Str("account", user.UserPrincipalName).
-		Str("type", drive.DriveType).
-		Msg("Starting tests")
 
 	os.Exit(m.Run())
 }

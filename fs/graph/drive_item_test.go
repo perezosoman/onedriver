@@ -8,6 +8,9 @@ import (
 
 func TestGetItem(t *testing.T) {
 	t.Parallel()
+	if !AuthAvailable {
+		t.Skip("OneDrive credentials not available")
+	}
 	var auth Auth
 	auth.FromFile(".auth_tokens.json")
 	item, err := GetItemPath("/", &auth)
