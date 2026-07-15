@@ -18,6 +18,9 @@ func TestResourcePath(t *testing.T) {
 
 func TestRequestUnauthenticated(t *testing.T) {
 	t.Parallel()
+	if !AuthAvailable {
+		t.Skip("OneDrive credentials not available")
+	}
 	badAuth := &Auth{
 		// Set a renewal 1 year in the future so we don't accidentally overwrite
 		// our auth tokens

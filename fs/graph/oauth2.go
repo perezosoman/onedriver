@@ -159,7 +159,7 @@ func getAuthURL(a AuthConfig) string {
 
 // getAuthCodeHeadless has the user perform authentication in their own browser
 // instead of WebKit2GTK and then input the auth code in the terminal.
-func getAuthCodeHeadless(a AuthConfig, accountName string) string {
+func getAuthCodeHeadless(a AuthConfig, accountName string) (string, error) {
 	fmt.Printf("Please visit the following URL:\n%s\n\n", getAuthURL(a))
 	fmt.Println("Please enter the redirect URL once you are redirected to a " +
 		"blank page (after \"Let this app access your info?\"):")
@@ -167,10 +167,9 @@ func getAuthCodeHeadless(a AuthConfig, accountName string) string {
 	fmt.Scanln(&response)
 	code, err := parseAuthCode(response)
 	if err != nil {
-		log.Fatal().Msg("No validation code returned, or code was invalid. " +
-			"Please restart the application and try again.")
+		return "", fmt.Errorf("no validation code returned, or code was invalid: %w", err)
 	}
-	return code
+	return code, nil
 }
 
 // parseAuthCode is used to parse the auth code out of the redirect the server gives us
@@ -245,11 +244,15 @@ func newAuth(config AuthConfig, path string, headless bool) *Auth {
 
 	config.applyDefaults()
 	var code string
+	var err error
 	if headless {
-		code = getAuthCodeHeadless(config, old.Account)
+		code, err = getAuthCodeHeadless(config, old.Account)
 	} else {
 		// in a build without CGO, this will be the same as above
-		code = getAuthCode(config, old.Account)
+		code, err = getAuthCode(config, old.Account)
+	}
+	if err != nil {
+		log.Fatal().Err(err).Msg("Authentication failed. Please restart the application and try again.")
 	}
 	auth := getAuthTokens(config, code)
 

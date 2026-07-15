@@ -25,6 +25,9 @@ func TestAuthCodeFormat(t *testing.T) {
 
 func TestAuthFromfile(t *testing.T) {
 	t.Parallel()
+	if !AuthAvailable {
+		t.Skip("OneDrive credentials not available")
+	}
 	require.FileExists(t, ".auth_tokens.json")
 
 	var auth Auth
@@ -34,6 +37,9 @@ func TestAuthFromfile(t *testing.T) {
 
 func TestAuthRefresh(t *testing.T) {
 	t.Parallel()
+	if !AuthAvailable {
+		t.Skip("OneDrive credentials not available")
+	}
 	require.FileExists(t, ".auth_tokens.json")
 
 	var auth Auth

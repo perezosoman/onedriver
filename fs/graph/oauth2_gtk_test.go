@@ -10,12 +10,26 @@ import (
 )
 
 func TestURIGetHost(t *testing.T) {
-	host := uriGetHost("this won't work")
-	assert.Equal(t, "", host, "Func should return NULL if not a valid URI")
+	tests := []struct {
+		name     string
+		uri      string
+		expected string
+	}{
+		{"empty string", "", ""},
+		{"plain text no scheme", "this won't work", ""},
+		{"https with path", "https://account.live.com/test/index.html", "account.live.com"},
+		{"http without path", "http://account.live.com", "account.live.com"},
+		{"with port", "https://account.live.com:443/test", "account.live.com"},
+		{"with query string", "https://account.live.com?code=abc123", "account.live.com"},
+		{"with fragment", "https://account.live.com#section", "account.live.com"},
+		{"subdomain", "https://sub.domain.example.com/path", "sub.domain.example.com"},
+		{"IPv4 address", "https://192.168.1.1/path", "192.168.1.1"},
+		{"oauth redirect URL", "https://login.live.com/oauth20_desktop.srf?code=M.R3_BAY.abc123", "login.live.com"},
+	}
 
-	host = uriGetHost("https://account.live.com/test/index.html")
-	assert.Equal(t, "account.live.com", host, "Failed URI host with extra path.")
-
-	host = uriGetHost("http://account.live.com")
-	assert.Equal(t, "account.live.com", host, "Failed URI host without extra path")
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.expected, uriGetHost(tt.uri))
+		})
+	}
 }
