@@ -1,6 +1,7 @@
 package fs
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os"
@@ -111,7 +112,7 @@ func NewFilesystem(auth *graph.Auth, cacheDir string) *Filesystem {
 		opendirs:      make(map[uint64][]*Inode),
 	}
 
-	rootItem, err := graph.GetItem("root", auth)
+	rootItem, err := graph.GetItem(context.Background(), "root", auth)
 	root := NewInodeDriveItem(rootItem)
 	if err != nil {
 		if graph.IsOffline(err) {
@@ -153,7 +154,7 @@ func NewFilesystem(auth *graph.Auth, cacheDir string) *Filesystem {
 		// does not exist
 		trash := fmt.Sprintf(".Trash-%d", os.Getuid())
 		if child, _ := fs.GetChild(fs.root, trash, auth); child == nil {
-			item, err := graph.Mkdir(trash, fs.root, auth)
+			item, err := graph.Mkdir(context.Background(), trash, fs.root, auth)
 			if err != nil {
 				log.Error().Err(err).
 					Msg("Could not create trash folder. " +
@@ -390,7 +391,7 @@ func (f *Filesystem) GetChildrenID(id string, auth *graph.Auth) (map[string]*Ino
 	inode.RUnlock()
 
 	// We haven't fetched the children for this item yet, get them from the server.
-	fetched, err := graph.GetItemChildren(id, auth)
+	fetched, err := graph.GetItemChildren(context.Background(), id, auth)
 	if err != nil {
 		if graph.IsOffline(err) {
 			log.Warn().Str("id", id).

@@ -1,6 +1,7 @@
 package graph
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"strings"
@@ -70,8 +71,8 @@ func TestMain(m *testing.M) {
 
 	if AuthAvailable {
 		auth := Authenticate(AuthConfig{}, authTokenPath, false)
-		user, _ := GetUser(auth)
-		drive, _ := GetDrive(auth)
+		user, _ := GetUser(context.Background(), auth)
+		drive, _ := GetDrive(context.Background(), auth)
 		log.Info().
 			Str("account", user.UserPrincipalName).
 			Str("type", drive.DriveType).

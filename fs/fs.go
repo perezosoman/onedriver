@@ -1,6 +1,7 @@
 package fs
 
 import (
+	"context"
 	"io"
 	"math"
 	"os"
@@ -17,6 +18,20 @@ import (
 
 const timeout = time.Second
 
+// cancelToContext converts a FUSE cancel channel to a context.Context.
+// This allows FUSE operation cancellation to propagate to HTTP requests.
+func cancelToContext(cancel <-chan struct{}) (context.Context, context.CancelFunc) {
+	ctx, cancelFn := context.WithCancel(context.Background())
+	go func() {
+		select {
+		case <-cancel:
+			cancelFn()
+		case <-ctx.Done():
+		}
+	}()
+	return ctx, cancelFn
+}
+
 func (f *Filesystem) getInodeContent(i *Inode) *[]byte {
 	i.RLock()
 	defer i.RUnlock()
@@ -27,7 +42,7 @@ func (f *Filesystem) getInodeContent(i *Inode) *[]byte {
 // remoteID uploads a file to obtain a Onedrive ID if it doesn't already
 // have one. This is necessary to avoid race conditions against uploads if the
 // file has not already been uploaded.
-func (f *Filesystem) remoteID(i *Inode) (string, error) {
+func (f *Filesystem) remoteID(ctx context.Context, i *Inode) (string, error) {
 	if i.IsDir() {
 		// Directories are always created with an ID. (And this method is only
 		// really used for files anyways...)
@@ -45,7 +60,7 @@ func (f *Filesystem) remoteID(i *Inode) (string, error) {
 
 		i.Lock()
 		name := i.DriveItem.Name
-		err = session.Upload(f.auth)
+		err = session.Upload(ctx, f.auth)
 		if err != nil {
 			i.Unlock()
 
@@ -53,7 +68,7 @@ func (f *Filesystem) remoteID(i *Inode) (string, error) {
 				// A file with this name already exists on the server, get its ID and
 				// use that. This is probably the same file, but just got uploaded
 				// earlier.
-				children, err := graph.GetItemChildren(i.ParentID(), f.auth)
+				children, err := graph.GetItemChildren(ctx, i.ParentID(), f.auth)
 				if err != nil {
 					return originalID, err
 				}
@@ -118,9 +133,12 @@ func isNameRestricted(name string) bool {
 // Statfs returns information about the filesystem. Mainly useful for checking
 // quotas and storage limits.
 func (f *Filesystem) StatFs(cancel <-chan struct{}, in *fuse.InHeader, out *fuse.StatfsOut) fuse.Status {
+	httpCtx, cancelFn := cancelToContext(cancel)
+	defer cancelFn()
+
 	ctx := log.With().Str("op", "StatFs").Logger()
 	ctx.Debug().Msg("")
-	drive, err := graph.GetDrive(f.auth)
+	drive, err := graph.GetDrive(httpCtx, f.auth)
 	if err != nil {
 		return fuse.EREMOTEIO
 	}
@@ -154,6 +172,9 @@ func (f *Filesystem) Mkdir(cancel <-chan struct{}, in *fuse.MkdirIn, name string
 		return fuse.EINVAL
 	}
 
+	httpCtx, cancelFn := cancelToContext(cancel)
+	defer cancelFn()
+
 	inode := f.GetNodeID(in.NodeId)
 	if inode == nil {
 		return fuse.ENOENT
@@ -170,7 +191,7 @@ func (f *Filesystem) Mkdir(cancel <-chan struct{}, in *fuse.MkdirIn, name string
 	ctx.Debug().Msg("")
 
 	// create the new directory on the server
-	item, err := graph.Mkdir(name, id, f.auth)
+	item, err := graph.Mkdir(httpCtx, name, id, f.auth)
 	if err != nil {
 		ctx.Error().Err(err).Msg("Could not create remote directory!")
 		return fuse.EREMOTEIO
@@ -463,6 +484,9 @@ func (f *Filesystem) Open(cancel <-chan struct{}, in *fuse.OpenIn, out *fuse.Ope
 		return fuse.ENOENT
 	}
 
+	httpCtx, cancelFn := cancelToContext(cancel)
+	defer cancelFn()
+
 	path := inode.Path()
 	ctx := log.With().
 		Str("op", "Open").
@@ -529,7 +553,7 @@ func (f *Filesystem) Open(cancel <-chan struct{}, in *fuse.OpenIn, out *fuse.Ope
 	defer f.content.Delete(tempID)
 
 	// replace content only on a match
-	size, err := graph.GetItemContentStream(id, f.auth, temp)
+	size, err := graph.GetItemContentStream(httpCtx, id, f.auth, temp)
 	if err != nil || !inode.VerifyChecksum(graph.QuickXORHashStream(temp)) {
 		ctx.Error().Err(err).Msg("Failed to fetch remote content.")
 		return fuse.EREMOTEIO
@@ -554,6 +578,9 @@ func (f *Filesystem) Unlink(cancel <-chan struct{}, in *fuse.InHeader, name stri
 		return fuse.EROFS
 	}
 
+	httpCtx, cancelFn := cancelToContext(cancel)
+	defer cancelFn()
+
 	id := child.ID()
 	path := child.Path()
 	ctx := log.With().
@@ -568,7 +595,7 @@ func (f *Filesystem) Unlink(cancel <-chan struct{}, in *fuse.InHeader, name stri
 	// if no ID, the item is local-only, and does not need to be deleted on the
 	// server
 	if !isLocalID(id) {
-		if err := graph.Remove(id, f.auth); err != nil {
+		if err := graph.Remove(httpCtx, id, f.auth); err != nil {
 			ctx.Err(err).Msg("Failed to delete item on server. Aborting op.")
 			return fuse.EREMOTEIO
 		}
@@ -803,6 +830,9 @@ func (f *Filesystem) Rename(cancel <-chan struct{}, in *fuse.RenameIn, name stri
 		return fuse.EINVAL
 	}
 
+	httpCtx, cancelFn := cancelToContext(cancel)
+	defer cancelFn()
+
 	oldParentID := f.TranslateID(in.NodeId)
 	oldParentItem := f.GetNodeID(in.NodeId)
 	if oldParentID == "" || oldParentItem == nil {
@@ -820,7 +850,7 @@ func (f *Filesystem) Rename(cancel <-chan struct{}, in *fuse.RenameIn, name stri
 	dest := filepath.Join(newParentItem.Path(), newName)
 
 	inode, _ := f.GetChild(oldParentID, name, f.auth)
-	id, err := f.remoteID(inode)
+	id, err := f.remoteID(httpCtx, inode)
 	newParentID := newParentItem.ID()
 
 	ctx := log.With().
@@ -843,7 +873,7 @@ func (f *Filesystem) Rename(cancel <-chan struct{}, in *fuse.RenameIn, name stri
 	}
 
 	// perform remote rename
-	if err = graph.Rename(id, newName, newParentID, f.auth); err != nil {
+	if err = graph.Rename(httpCtx, id, newName, newParentID, f.auth); err != nil {
 		ctx.Error().Err(err).Msg("Failed to rename remote item.")
 		return fuse.EREMOTEIO
 	}

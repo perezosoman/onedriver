@@ -2,6 +2,7 @@ package fs
 
 import (
 	"bytes"
+	"context"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -27,7 +28,7 @@ func TestUploadSession(t *testing.T) {
 
 	session, err := NewUploadSession(inode, &data)
 	require.NoError(t, err)
-	err = session.Upload(auth)
+	err = session.Upload(context.Background(), auth)
 	require.NoError(t, err)
 	if isLocalID(session.ID) {
 		t.Fatalf("The session's ID was somehow still local following an upload: %s\n",
@@ -37,7 +38,7 @@ func TestUploadSession(t *testing.T) {
 		t.Errorf("session modtime changed - before: %d - after: %d", mtime, sessionMtime)
 	}
 
-	resp, _, err := graph.GetItemContent(session.ID, auth)
+	resp, _, err := graph.GetItemContent(context.Background(), session.ID, auth)
 	require.NoError(t, err)
 	if !bytes.Equal(data, resp) {
 		t.Fatalf("Data mismatch. Original content: %s\nRemote content: %s\n", data, resp)
@@ -53,10 +54,10 @@ func TestUploadSession(t *testing.T) {
 
 	session2, err := NewUploadSession(inode, &newData)
 	require.NoError(t, err)
-	err = session2.Upload(auth)
+	err = session2.Upload(context.Background(), auth)
 	require.NoError(t, err)
 
-	resp, _, err = graph.GetItemContent(session.ID, auth)
+	resp, _, err = graph.GetItemContent(context.Background(), session.ID, auth)
 	require.NoError(t, err)
 	if !bytes.Equal(newData, resp) {
 		t.Fatalf("Data mismatch. Original content: %s\nRemote content: %s\n", newData, resp)
@@ -74,12 +75,12 @@ func TestUploadSessionSmallFS(t *testing.T) {
 	require.NoError(t, err)
 
 	time.Sleep(10 * time.Second)
-	item, err := graph.GetItemPath("/onedriver_tests/uploadSessionSmallFS.txt", auth)
+	item, err := graph.GetItemPath(context.Background(), "/onedriver_tests/uploadSessionSmallFS.txt", auth)
 	if err != nil || item == nil {
 		t.Fatal(err)
 	}
 
-	content, _, err := graph.GetItemContent(item.ID, auth)
+	content, _, err := graph.GetItemContent(context.Background(), item.ID, auth)
 	require.NoError(t, err)
 	if !bytes.Equal(content, data) {
 		t.Fatalf("Data mismatch. Original content: %s\nRemote content: %s\n", data, content)
@@ -91,12 +92,12 @@ func TestUploadSessionSmallFS(t *testing.T) {
 	require.NoError(t, err)
 
 	time.Sleep(15 * time.Second)
-	item2, err := graph.GetItemPath("/onedriver_tests/uploadSessionSmallFS.txt", auth)
+	item2, err := graph.GetItemPath(context.Background(), "/onedriver_tests/uploadSessionSmallFS.txt", auth)
 	if err != nil || item2 == nil {
 		t.Fatal(err)
 	}
 
-	content, _, err = graph.GetItemContent(item2.ID, auth)
+	content, _, err = graph.GetItemContent(context.Background(), item2.ID, auth)
 	require.NoError(t, err)
 	if !bytes.Equal(content, data) {
 		t.Fatalf("Data mismatch. Original content: %s\nRemote content: %s\n", data, content)
@@ -126,13 +127,13 @@ func TestUploadSessionLargeFS(t *testing.T) {
 	size := uint64(len(original))
 	var item *graph.DriveItem
 	assert.Eventually(t, func() bool {
-		item, _ = graph.GetItemPath("/onedriver_tests/dmel.fa", auth)
+		item, _ = graph.GetItemPath(context.Background(), "/onedriver_tests/dmel.fa", auth)
 		inode := NewInodeDriveItem(item)
 		return item != nil && inode.Size() == size
 	}, 120*time.Second, time.Second, "Upload session did not complete successfully!")
 
 	// verify content via Graph API download
-	downloaded, _, err := graph.GetItemContent(item.ID, auth)
+	downloaded, _, err := graph.GetItemContent(context.Background(), item.ID, auth)
 	assert.NoError(t, err)
 	assert.Equal(t, graph.QuickXORHash(&original), graph.QuickXORHash(&downloaded),
 		"Downloaded content did not match original content.")

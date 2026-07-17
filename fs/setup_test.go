@@ -1,6 +1,7 @@
 package fs
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"os/exec"
@@ -182,7 +183,7 @@ func createPagingTestFiles() {
 	for i := 0; i < 250; i++ {
 		group.Add(1)
 		go func(n int, wg *sync.WaitGroup) {
-			_, err := graph.Put(
+			_, err := graph.Put(context.Background(),
 				graph.ResourcePath(fmt.Sprintf("/onedriver_tests/paging/%d.txt", n))+":/content",
 				auth,
 				strings.NewReader("test\n"),

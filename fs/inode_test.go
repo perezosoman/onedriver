@@ -28,7 +28,7 @@ func TestConstructor(t *testing.T) {
 func TestMode(t *testing.T) {
 	requireAuth(t)
 	t.Parallel()
-	item, _ := graph.GetItemPath("/Documents", auth)
+	item, _ := graph.GetItemPath(context.Background(),"/Documents", auth)
 	inode := NewInodeDriveItem(item)
 	if inode.Mode() != uint32(0755|fuse.S_IFDIR) {
 		t.Fatalf("mode of /Documents wrong: %o != %o",
@@ -40,7 +40,7 @@ func TestMode(t *testing.T) {
 
 	var err error
 	for i := 0; i < 10; i++ {
-		item, err = graph.GetItemPath(fname, auth)
+		item, err = graph.GetItemPath(context.Background(),fname, auth)
 		if err == nil && item != nil {
 			break
 		}
@@ -60,7 +60,7 @@ func TestMode(t *testing.T) {
 func TestIsDir(t *testing.T) {
 	requireAuth(t)
 	t.Parallel()
-	item, _ := graph.GetItemPath("/Documents", auth)
+	item, _ := graph.GetItemPath(context.Background(),"/Documents", auth)
 	inode := NewInodeDriveItem(item)
 	if !inode.IsDir() {
 		t.Fatal("/Documents not detected as a directory")
@@ -70,7 +70,7 @@ func TestIsDir(t *testing.T) {
 	require.NoError(t, os.WriteFile("mount"+fname, []byte("test"), 0644))
 
 	assert.Eventually(t, func() bool {
-		item, err := graph.GetItemPath(fname, auth)
+		item, err := graph.GetItemPath(context.Background(),fname, auth)
 		if err == nil && item != nil {
 			if inode := NewInodeDriveItem(item); inode.IsDir() {
 				t.Fatal("File created with mode 644 not detected as file")
@@ -91,7 +91,7 @@ func TestFilenameEscape(t *testing.T) {
 
 	// make sure it made it to the server
 	assert.Eventually(t, func() bool {
-		children, err := graph.GetItemChildrenPath("/onedriver_tests", auth)
+		children, err := graph.GetItemChildrenPath(context.Background(),"/onedriver_tests", auth)
 		require.NoError(t, err)
 		for _, child := range children {
 			if child.Name == fname {

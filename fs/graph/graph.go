@@ -1,3 +1,8 @@
+// Package graph provides the basic APIs to interact with Microsoft Graph. This includes
+// the DriveItem resource and supporting resources which are the basis of working with
+// files and folders through the Microsoft Graph API.
+//
+
 package graph
 
 import (
@@ -7,14 +12,16 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
+	"math/rand"
 	"net/http"
 	"net/url"
 	"os"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
 
-	"dario.cat/mergo"
 	"github.com/rs/zerolog/log"
 )
 
@@ -40,6 +47,50 @@ var httpClient = &http.Client{
 
 // DefaultGraphURL is the default Microsoft Graph API endpoint.
 const DefaultGraphURL = "https://graph.microsoft.com/v1.0"
+
+// RetryConfig defines the retry behavior for failed requests
+type RetryConfig struct {
+	// MaxRetries is the maximum number of retry attempts
+	MaxRetries int
+
+	// BaseDelay is the initial delay before the first retry
+	BaseDelay time.Duration
+
+	// MaxDelay is the maximum delay between retries
+	MaxDelay time.Duration
+
+	// EnableJitter adds randomness to delays to prevent thundering herd
+	EnableJitter bool
+}
+
+// DefaultRetryConfig provides sensible defaults for retry behavior
+var DefaultRetryConfig = RetryConfig{
+	MaxRetries:   3,
+	BaseDelay:    1 * time.Second,
+	MaxDelay:     30 * time.Second,
+	EnableJitter: true,
+}
+
+// calculateBackoff computes the delay before the next retry attempt
+// Uses exponential backoff: baseDelay * 2^attempt
+// With optional jitter: adds random value between 0 and 1 second
+func calculateBackoff(attempt int, config RetryConfig) time.Duration {
+	// Exponential backoff: 1s, 2s, 4s, 8s, ...
+	backoff := float64(config.BaseDelay) * math.Pow(2, float64(attempt))
+
+	// Cap at max delay
+	if backoff > float64(config.MaxDelay) {
+		backoff = float64(config.MaxDelay)
+	}
+
+	// Add jitter if enabled
+	if config.EnableJitter {
+		jitter := rand.Float64() * float64(time.Second)
+		backoff += jitter
+	}
+
+	return time.Duration(backoff)
+}
 
 // graphURL stores the Microsoft Graph API endpoint.
 // We use a private variable + getter/setter to control access and validation.
@@ -195,42 +246,49 @@ var validHTTPMethods = map[string]bool{
 	http.MethodDelete: true,
 }
 
-// isValidHTTPMethod checks if the method is one we support.
 func isValidHTTPMethod(method string) bool {
 	return validHTTPMethods[strings.ToUpper(method)]
 }
 
-// ---------------------------------------------------------------
-// Header is an additional header that can be specified to Request
-
+// ============================================================================
+// Header represents a custom header for the HTTP request.
 type Header struct {
 	key, value string
 }
 
-// Request performs an authenticated request to Microsoft Graph
+// Request performs an authenticated request to Microsoft Graph with retry logic.
+//
+// ROBUSTNESS IMPROVEMENTS:
+// - Exponential backoff with jitter for retries
+// - HTTP 429 handling with Retry-After header
+// - Retries on 5xx errors and network failures
+// - Configurable retry behavior via RetryConfig
 //
 // PERFORMANCE IMPROVEMENTS:
 // - Uses shared http.Client with connection pooling
-// - Drains response body before closing (enables connection reuse)
+// - Drains response body before closing
 // - Uses io.LimitReader to prevent DoS
-// - Supports context.Context for cancellation
 //
 // SECURITY IMPROVEMENTS:
-// - Proper error handling (no ignored errors)
+// - Proper error handling
 // - Bearer token in correct case (RFC 6750)
 // - Returns typed GraphError
-
 func Request(ctx context.Context, resource string, auth *Auth, method string, content io.Reader, headers ...Header) ([]byte, error) {
+	return RequestWithRetryConfig(ctx, resource, auth, method, content, DefaultRetryConfig, headers...)
+}
+
+// RequestWithRetryConfig performs a request with custom retry configuration
+func RequestWithRetryConfig(ctx context.Context, resource string, auth *Auth, method string, content io.Reader, retryConfig RetryConfig, headers ...Header) ([]byte, error) {
 	if auth == nil || auth.AccessToken == "" {
 		// a catch all condition to avoid wiping our auth by accident
 		log.Error().Msg("Auth was empty and we attempted to make a request with it!")
 		return nil, errors.New("cannot make a request with empty auth")
 	}
 
-	// Refresh auth token if needed
+	// Refresh auth token if needed (with mutex protection)
 	auth.Refresh()
 
-	// PERFORMANCE: Read content into buffer if provided, to enable retries
+	// Read content into buffer to enable retries
 	var contentBytes []byte
 	if content != nil {
 		var err error
@@ -240,7 +298,7 @@ func Request(ctx context.Context, resource string, auth *Auth, method string, co
 		}
 	}
 
-	// Build the HTTP request with context
+	// Build the HTTP request
 	var req *http.Request
 	var err error
 	if contentBytes != nil {
@@ -278,79 +336,117 @@ func Request(ctx context.Context, resource string, auth *Auth, method string, co
 		}
 	}
 
-	// Execute the request using the shared client
-	resp, err := httpClient.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("request failed: %w", err)
-	}
+	// Execute request with retry logic
+	var lastErr error
+	for attempt := 0; attempt <= retryConfig.MaxRetries; attempt++ {
+		// Wait before retry (except for first attempt)
+		if attempt > 0 {
+			backoff := calculateBackoff(attempt-1, retryConfig)
+			log.Debug().Int("attempt", attempt).Dur("backoff", backoff).Msg("Retrying request")
 
-	// PERFORMANCE: Drain body before closing to enable connection reuse
-	// SECURITY: Use LimitReader to prevent DoS
-	body, err := io.ReadAll(io.LimitReader(resp.Body, maxResponseSize))
-	if err != nil {
-		resp.Body.Close()
-		return nil, fmt.Errorf("failed to read response body: %w", err)
-	}
-	// Drain any remaining data and close
-	io.Copy(io.Discard, resp.Body)
-	resp.Body.Close()
-
-	// Handle 401 Unauthorized
-	if resp.StatusCode == http.StatusUnauthorized {
-		var graphErr GraphError
-		if unmarshalErr := json.Unmarshal(body, &graphErr); unmarshalErr != nil {
-			log.Warn().Err(unmarshalErr).Msg("Failed to unmarshal 401 error response")
+			select {
+			case <-ctx.Done():
+				return nil, fmt.Errorf("request canceled during backoff: %w", ctx.Err())
+			case <-time.After(backoff):
+				// Continue with retry
+			}
 		}
-		log.Warn().
-			Str("code", graphErr.Code).
-			Str("message", graphErr.Message).
-			Msg("Authentication token invalid or new app permissions required, forcing reauth before retrying.")
 
-		// Attempt to refresh auth
-		reauth := newAuth(auth.AuthConfig, auth.path, false)
-		if mergeErr := mergo.Merge(auth, reauth, mergo.WithOverride); mergeErr != nil {
-			log.Error().Err(mergeErr).Msg("Failed to merge auth tokens")
-		}
-		req.Header.Set("Authorization", "Bearer "+auth.AccessToken)
-
-		// Retry the request
-		resp, err = httpClient.Do(req)
+		// Execute the request
+		resp, err := httpClient.Do(req)
 		if err != nil {
-			return nil, fmt.Errorf("retry request failed: %w", err)
+			// Network error - retry
+			lastErr = fmt.Errorf("request failed: %w", err)
+			log.Warn().Err(err).Int("attempt", attempt).Msg("Network error, will retry")
+			continue
 		}
 
-		// Drain and read response
-		body, err = io.ReadAll(io.LimitReader(resp.Body, maxResponseSize))
+		// Read response body
+		lr := io.LimitReader(resp.Body, maxResponseSize+1)
+		body, err := io.ReadAll(lr)
 		if err != nil {
 			resp.Body.Close()
-			return nil, fmt.Errorf("failed to read retry response body: %w", err)
+			lastErr = fmt.Errorf("failed to read response body: %w", err)
+			continue
 		}
 		io.Copy(io.Discard, resp.Body)
 		resp.Body.Close()
-	}
 
-	// Handle 5xx server errors (retry once)
-	if resp.StatusCode >= 500 {
-		resp, err = httpClient.Do(req)
-		if err != nil {
-			return nil, fmt.Errorf("retry request failed: %w", err)
+		// Reject responses that exceed the size limit
+		if uint64(len(body)) > maxResponseSize {
+			return nil, fmt.Errorf("response body exceeds maximum size of %d bytes", maxResponseSize)
 		}
 
-		body, err = io.ReadAll(io.LimitReader(resp.Body, maxResponseSize))
-		if err != nil {
-			resp.Body.Close()
-			return nil, fmt.Errorf("failed to read retry response body: %w", err)
+		// Handle 429 Too Many Requests
+		if resp.StatusCode == http.StatusTooManyRequests {
+			retryAfter := parseRetryAfter(resp.Header.Get("Retry-After"))
+			if retryAfter > 0 {
+				log.Warn().Int("retryAfter", retryAfter).Msg("Rate limited, waiting before retry")
+				select {
+				case <-ctx.Done():
+					return nil, fmt.Errorf("request canceled during rate limit wait: %w", ctx.Err())
+				case <-time.After(time.Duration(retryAfter) * time.Second):
+					// Continue with retry
+				}
+			}
+			continue
 		}
-		io.Copy(io.Discard, resp.Body)
-		resp.Body.Close()
+
+		// Handle 401 Unauthorized
+		if resp.StatusCode == http.StatusUnauthorized {
+			var graphErr GraphError
+			if unmarshalErr := json.Unmarshal(body, &graphErr); unmarshalErr != nil {
+				log.Warn().Err(unmarshalErr).Msg("Failed to unmarshal 401 error response")
+			}
+			log.Warn().
+				Str("code", graphErr.Code).
+				Str("message", graphErr.Message).
+				Msg("Authentication token invalid or new app permissions required, forcing reauth before retrying.")
+
+			// Refresh auth and retry
+			auth.Refresh()
+			req.Header.Set("Authorization", "Bearer "+auth.AccessToken)
+			continue
+		}
+
+		// Handle 5xx server errors (retry with backoff)
+		if resp.StatusCode >= 500 {
+			lastErr = newGraphError(resp.StatusCode, body)
+			log.Warn().Int("status", resp.StatusCode).Int("attempt", attempt).Msg("Server error, will retry")
+			continue
+		}
+
+		// Handle other 4xx errors (don't retry)
+		if resp.StatusCode >= 400 {
+			return nil, newGraphError(resp.StatusCode, body)
+		}
+
+		// Success
+		return body, nil
 	}
 
-	// Check for error status codes
-	if resp.StatusCode >= 400 {
-		return nil, newGraphError(resp.StatusCode, body)
+	// All retries exhausted
+	if lastErr != nil {
+		return nil, fmt.Errorf("all %d retry attempts failed: %w", retryConfig.MaxRetries, lastErr)
+	}
+	return nil, errors.New("request failed after all retries")
+}
+
+// parseRetryAfter parses the Retry-After header value
+// Returns the number of seconds to wait, or 0 if invalid
+func parseRetryAfter(value string) int {
+	if value == "" {
+		return 0
 	}
 
-	return body, nil
+	// Try parsing as integer (seconds) — must be positive
+	if seconds, err := strconv.Atoi(value); err == nil && seconds > 0 {
+		return seconds
+	}
+
+	// Try parsing as HTTP date (not commonly used by Graph API)
+	// For simplicity, we just return a default value
+	return 5
 }
 
 // Get is a convenience wrapper around Request

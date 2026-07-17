@@ -1,6 +1,7 @@
 package fs
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"strings"
@@ -96,7 +97,7 @@ type deltaResponse struct {
 // distinction between local and remote changes from the server's perspective,
 // everything is a delta, regardless of where it came from).
 func (f *Filesystem) pollDeltas(auth *graph.Auth) ([]*graph.DriveItem, bool, error) {
-	resp, err := graph.Get(f.deltaLink, auth)
+	resp, err := graph.Get(context.Background(), f.deltaLink, auth)
 	if err != nil {
 		return make([]*graph.DriveItem, 0), false, err
 	}
@@ -108,10 +109,10 @@ func (f *Filesystem) pollDeltas(auth *graph.Auth) ([]*graph.DriveItem, bool, err
 	// reached the end of this polling cycle and should not continue until the
 	// next poll interval.
 	if page.NextLink != "" {
-		f.deltaLink = strings.TrimPrefix(page.NextLink, graph.GraphURL)
+		f.deltaLink = strings.TrimPrefix(page.NextLink, graph.GetGraphURL())
 		return page.Values, true, nil
 	}
-	f.deltaLink = strings.TrimPrefix(page.DeltaLink, graph.GraphURL)
+	f.deltaLink = strings.TrimPrefix(page.DeltaLink, graph.GetGraphURL())
 	return page.Values, false, nil
 }
 

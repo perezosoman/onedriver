@@ -1,6 +1,7 @@
 package graph
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -267,7 +268,7 @@ func newAuth(config AuthConfig, path string, headless bool) *Auth {
 	}
 	auth := getAuthTokens(config, code)
 
-	if user, err := GetUser(auth); err == nil {
+	if user, err := GetUser(context.Background(), auth); err == nil {
 		auth.Account = user.UserPrincipalName
 	}
 	auth.ToFile(path)
