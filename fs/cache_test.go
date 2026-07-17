@@ -13,6 +13,7 @@ import (
 )
 
 func TestRootGet(t *testing.T) {
+	requireAuth(t)
 	t.Parallel()
 	cache := NewFilesystem(auth, filepath.Join(testDBLoc, "test_root_get"))
 	root, err := cache.GetPath("/", auth)
@@ -21,6 +22,7 @@ func TestRootGet(t *testing.T) {
 }
 
 func TestRootChildrenUpdate(t *testing.T) {
+	requireAuth(t)
 	t.Parallel()
 	cache := NewFilesystem(auth, filepath.Join(testDBLoc, "test_root_children_update"))
 	children, err := cache.GetChildrenPath("/", auth)
@@ -32,6 +34,7 @@ func TestRootChildrenUpdate(t *testing.T) {
 }
 
 func TestSubdirGet(t *testing.T) {
+	requireAuth(t)
 	t.Parallel()
 	cache := NewFilesystem(auth, filepath.Join(testDBLoc, "test_subdir_get"))
 	documents, err := cache.GetPath("/Documents", auth)
@@ -40,6 +43,7 @@ func TestSubdirGet(t *testing.T) {
 }
 
 func TestSubdirChildrenUpdate(t *testing.T) {
+	requireAuth(t)
 	t.Parallel()
 	cache := NewFilesystem(auth, filepath.Join(testDBLoc, "test_subdir_children_update"))
 	children, err := cache.GetChildrenPath("/Documents", auth)
@@ -56,6 +60,7 @@ func TestSubdirChildrenUpdate(t *testing.T) {
 }
 
 func TestSamePointer(t *testing.T) {
+	requireAuth(t)
 	t.Parallel()
 	cache := NewFilesystem(auth, filepath.Join(testDBLoc, "test_same_pointer"))
 	item, _ := cache.GetPath("/Documents", auth)
@@ -68,6 +73,7 @@ func TestSamePointer(t *testing.T) {
 
 // SetCacheMaxAge should store the configured max age.
 func TestSetCacheMaxAge(t *testing.T) {
+	requireAuth(t)
 	t.Parallel()
 	cache := NewFilesystem(auth, filepath.Join(testDBLoc, "test_cache_max_age"))
 	assert.Equal(t, 5*time.Minute, cache.cacheMaxAge)
@@ -80,6 +86,7 @@ func TestSetCacheMaxAge(t *testing.T) {
 
 // SetCacheMaxAge with zero or negative should not start the cleanup loop.
 func TestSetCacheMaxAgeZero(t *testing.T) {
+	requireAuth(t)
 	t.Parallel()
 	cache := NewFilesystem(auth, filepath.Join(testDBLoc, "test_cache_max_age_zero"))
 	cache.SetCacheMaxAge(0)
@@ -90,6 +97,7 @@ func TestSetCacheMaxAgeZero(t *testing.T) {
 
 // EvictExpired removes content files older than cacheMaxAge, skipping open files.
 func TestEvictExpired(t *testing.T) {
+	requireAuth(t)
 	t.Parallel()
 	cache := NewFilesystem(auth, filepath.Join(testDBLoc, "test_evict_expired"))
 	cache.SetCacheMaxAge(1 * time.Hour)

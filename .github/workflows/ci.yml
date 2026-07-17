@@ -48,14 +48,28 @@ jobs:
           # Always create dummy tokens first - will be overwritten if S3 succeeds
           echo '{}' > .auth_tokens.json
 
-      - name: Copy auth tokens from S3
-        # This step will fail gracefully if AWS credentials are not available
+      - name: Use credentials from GitHub Secret (if set)
         run: |
-          which aws || echo "AWS CLI not required"
-          aws --version || echo "AWS CLI not required"
-          aws s3 cp s3://fusefs-travis/$ACCOUNT_TYPE/.auth_tokens.json . || echo "⚠️  Could not download from S3 (expected without AWS credentials)"
-          aws s3 cp s3://fusefs-travis/dmel.fa.gz . || echo "⚠️  Could not download dmel.fa from S3"
-          gunzip dmel.fa.gz 2>/dev/null || true
+          cat << 'EOF' > .auth_tokens.json
+          ${{ secrets.ONEDRIVER_AUTH_TOKENS }}
+          EOF
+          if [ -s .auth_tokens.json ] && ! grep -q '^{}$' .auth_tokens.json; then
+            echo "✅ Loaded OneDrive credentials from GitHub Secret"
+          fi
+
+      - name: Copy auth tokens from S3 (upstream only)
+        if: success()
+        # Only attempt S3 if credentials weren't loaded from GitHub Secret
+        run: |
+          if grep -q '^{}$' .auth_tokens.json; then
+            which aws || echo "AWS CLI not required"
+            aws --version || echo "AWS CLI not required"
+            aws s3 cp s3://fusefs-travis/$ACCOUNT_TYPE/.auth_tokens.json . || echo "⚠️  Could not download from S3 (expected without AWS credentials)"
+            aws s3 cp s3://fusefs-travis/dmel.fa.gz . || echo "⚠️  Could not download dmel.fa from S3"
+            gunzip dmel.fa.gz 2>/dev/null || true
+          else
+            echo "Skipping S3 — credentials already loaded from GitHub Secret"
+          fi
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
@@ -70,19 +84,36 @@ jobs:
             curl -L ftp://ftp.ensemblgenomes.org/pub/metazoa/release-42/fasta/drosophila_melanogaster/dna/Drosophila_melanogaster.BDGP6.22.dna.chromosome.X.fa.gz | gunzip > dmel.fa || echo "Failed to download dmel.fa"
           fi
 
+      - name: Setup mock fallback if no valid auth tokens
+        run: |
+          if [ ! -s .auth_tokens.json ] || grep -q '^{}$' .auth_tokens.json; then
+            echo "ONEDRIVER_MOCK=1" >> $GITHUB_ENV
+            # Generate a smaller dummy dmel.fa for mock mode (1 MB)
+            dd if=/dev/urandom of=dmel.fa bs=1024 count=1024 2>/dev/null
+            echo "⚠️  No valid OneDrive credentials — tests will run with mock Graph API"
+          else
+            echo "✅ Using real OneDrive credentials"
+          fi
+
       - name: Run tests
         run: |
           go install github.com/rakyll/gotest@latest
           # cannot run systemd tests here because github actions runners don't have dbus setup +
           # if CGO is on, the UI tests will take foreverrrrr
           bash cgo-helper.sh
-          CGO_ENABLED=0 gotest -v -tags=glib_2_64 -covermode=count -coverpkg=./ui/... -coverprofile=ui.coverage ./ui
-          gotest -v -tags=glib_2_64 -covermode=count -coverpkg=./cmd/common -coverprofile=common.coverage ./cmd/common
-          gotest -v -tags=glib_2_64 -covermode=count -coverpkg=./fs/... -coverprofile=quickxorhash.coverage ./fs/graph/quickxorhash
-          gotest -v -tags=glib_2_64 -covermode=count -coverpkg=./fs/... -coverprofile=graph.coverage ./fs/graph
-          gotest -v -tags=glib_2_64 -covermode=count -coverpkg=./fs/... -coverprofile=fs.coverage ./fs
-          go test -c -tags=glib_2_64 -covermode=count -coverpkg=./fs/... ./fs/offline
-          sudo unshare -n -S $(id -u) -G $(id -g) ./offline.test -test.v -test.coverprofile=offline.coverage
+          CGO_ENABLED=0 ONEDRIVER_MOCK="${ONEDRIVER_MOCK:-}" gotest -v -tags=glib_2_64 -covermode=count -coverpkg=./ui/... -coverprofile=ui.coverage ./ui
+          ONEDRIVER_MOCK="${ONEDRIVER_MOCK:-}" gotest -v -tags=glib_2_64 -covermode=count -coverpkg=./cmd/common -coverprofile=common.coverage ./cmd/common
+          ONEDRIVER_MOCK="${ONEDRIVER_MOCK:-}" gotest -v -tags=glib_2_64 -covermode=count -coverpkg=./fs/... -coverprofile=quickxorhash.coverage ./fs/graph/quickxorhash
+          ONEDRIVER_MOCK="${ONEDRIVER_MOCK:-}" gotest -v -tags=glib_2_64 -covermode=count -coverpkg=./fs/... -coverprofile=graph.coverage ./fs/graph
+          if [ "${ONEDRIVER_MOCK:-}" != "1" ]; then
+            gotest -v -tags=glib_2_64 -covermode=count -coverpkg=./fs/... -coverprofile=fs.coverage ./fs
+            go test -c -tags=glib_2_64 -covermode=count -coverpkg=./fs/... ./fs/offline
+            sudo unshare -n -S $(id -u) -G $(id -g) ./offline.test -test.v -test.coverprofile=offline.coverage
+          else
+            echo "Skipping fs/ tests (mock mode — FUSE mount not available)"
+            echo 'mode: set' > fs.coverage
+            echo 'mode: set' > offline.coverage
+          fi
 
       - name: Copy new auth tokens to S3
         # This step will fail gracefully if AWS credentials are not available

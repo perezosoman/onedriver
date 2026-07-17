@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -95,10 +96,20 @@ func (a *Auth) FromFile(file string) error {
 	}
 
 	// load refresh token from system keyring (fallback: keep whatever was in the JSON)
-	if token, err := keyring.Get("onedriver", file); err == nil {
-		a.RefreshToken = token
+	// Skip keyring when running under go test or in mock mode — dbus may hang.
+	if os.Getenv("ONEDRIVER_MOCK") != "1" && !isTestBinary() {
+		if token, err := keyring.Get("onedriver", file); err == nil {
+			a.RefreshToken = token
+		}
 	}
 	return a.applyDefaults()
+}
+
+// isTestBinary returns true when the process is a test binary (go test).
+func isTestBinary() bool {
+	return strings.HasSuffix(os.Args[0], ".test") ||
+		strings.Contains(os.Args[0], "/_test/") ||
+		strings.HasPrefix(filepath.Base(os.Args[0]), "___")
 }
 
 // Refresh auth tokens if expired.

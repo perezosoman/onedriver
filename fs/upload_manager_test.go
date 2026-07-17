@@ -20,6 +20,7 @@ import (
 // Test that new uploads are written to disk to support resuming them later if
 // the user shuts down their computer.
 func TestUploadDiskSerialization(t *testing.T) {
+	requireAuth(t)
 	t.Parallel()
 	// write a file and get its id - we do this as a goroutine because uploads are
 	// blocking now
@@ -81,6 +82,7 @@ func TestUploadDiskSerialization(t *testing.T) {
 
 // Make sure that uploading the same file multiple times works exactly as it should.
 func TestRepeatedUploads(t *testing.T) {
+	requireAuth(t)
 	t.Parallel()
 
 	// test setup

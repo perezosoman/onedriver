@@ -26,6 +26,7 @@ func TestConstructor(t *testing.T) {
 // verify that the mode of items fetched are correctly set when fetched from
 // server
 func TestMode(t *testing.T) {
+	requireAuth(t)
 	t.Parallel()
 	item, _ := graph.GetItemPath("/Documents", auth)
 	inode := NewInodeDriveItem(item)
@@ -57,6 +58,7 @@ func TestMode(t *testing.T) {
 
 // Do we properly detect whether something is a directory or not?
 func TestIsDir(t *testing.T) {
+	requireAuth(t)
 	t.Parallel()
 	item, _ := graph.GetItemPath("/Documents", auth)
 	inode := NewInodeDriveItem(item)
@@ -82,6 +84,7 @@ func TestIsDir(t *testing.T) {
 // A filename like .~lock.libreoffice-test.docx# will fail to upload unless the
 // filename is escaped.
 func TestFilenameEscape(t *testing.T) {
+	requireAuth(t)
 	t.Parallel()
 	fname := `.~lock.libreoffice-test.docx#`
 	require.NoError(t, os.WriteFile(filepath.Join(TestDir, fname), []byte("argl bargl"), 0644))
@@ -103,6 +106,7 @@ func TestFilenameEscape(t *testing.T) {
 // return the original inode.
 // Related to: https://github.com/jstaf/onedriver/issues/99
 func TestDoubleCreate(t *testing.T) {
+	requireAuth(t)
 	t.Parallel()
 	fname := "double_create.txt"
 
