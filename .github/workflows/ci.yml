@@ -48,14 +48,28 @@ jobs:
           # Always create dummy tokens first - will be overwritten if S3 succeeds
           echo '{}' > .auth_tokens.json
 
-      - name: Copy auth tokens from S3
-        # This step will fail gracefully if AWS credentials are not available
+      - name: Use credentials from GitHub Secret (if set)
         run: |
-          which aws || echo "AWS CLI not required"
-          aws --version || echo "AWS CLI not required"
-          aws s3 cp s3://fusefs-travis/$ACCOUNT_TYPE/.auth_tokens.json . || echo "⚠️  Could not download from S3 (expected without AWS credentials)"
-          aws s3 cp s3://fusefs-travis/dmel.fa.gz . || echo "⚠️  Could not download dmel.fa from S3"
-          gunzip dmel.fa.gz 2>/dev/null || true
+          cat << 'EOF' > .auth_tokens.json
+          ${{ secrets.ONEDRIVER_AUTH_TOKENS }}
+          EOF
+          if [ -s .auth_tokens.json ] && ! grep -q '^{}$' .auth_tokens.json; then
+            echo "✅ Loaded OneDrive credentials from GitHub Secret"
+          fi
+
+      - name: Copy auth tokens from S3 (upstream only)
+        if: success()
+        # Only attempt S3 if credentials weren't loaded from GitHub Secret
+        run: |
+          if grep -q '^{}$' .auth_tokens.json; then
+            which aws || echo "AWS CLI not required"
+            aws --version || echo "AWS CLI not required"
+            aws s3 cp s3://fusefs-travis/$ACCOUNT_TYPE/.auth_tokens.json . || echo "⚠️  Could not download from S3 (expected without AWS credentials)"
+            aws s3 cp s3://fusefs-travis/dmel.fa.gz . || echo "⚠️  Could not download dmel.fa from S3"
+            gunzip dmel.fa.gz 2>/dev/null || true
+          else
+            echo "Skipping S3 — credentials already loaded from GitHub Secret"
+          fi
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}

@@ -34,20 +34,20 @@ func checkValidAuthTokens(path string) bool {
 		log.Warn().Err(err).Msg("Could not read auth tokens file")
 		return false
 	}
-	
+
 	// Check if file is empty or just "{}"
 	content := strings.TrimSpace(string(data))
 	if content == "" || content == "{}" {
 		log.Warn().Msg("Auth tokens file is empty or contains only empty JSON")
 		return false
 	}
-	
+
 	// Basic check - valid tokens should have more content
 	if len(content) < 50 {
 		log.Warn().Msgf("Auth tokens file seems invalid (too short: %d bytes)", len(content))
 		return false
 	}
-	
+
 	return true
 }
 
@@ -59,10 +59,10 @@ func requireAuth(t *testing.T) {
 }
 
 var (
-	auth               *graph.Auth
-	fs                 *Filesystem
-	hasValidAuth       bool // flag to track if we have valid OneDrive credentials
-	skipAuthTests      bool // flag to skip tests requiring OneDrive
+	auth          *graph.Auth
+	fs            *Filesystem
+	hasValidAuth  bool // flag to track if we have valid OneDrive credentials
+	skipAuthTests bool // flag to skip tests requiring OneDrive
 )
 
 // Tests are done in the main project directory with a mounted filesystem to
@@ -94,16 +94,19 @@ func TestMain(m *testing.M) {
 	// Check if we have valid auth tokens before attempting to authenticate
 	authTokenPath := ".auth_tokens.json"
 	hasValidAuth = checkValidAuthTokens(authTokenPath)
-	
+
 	if !hasValidAuth {
-		log.Warn().Msg("⚠️  No valid OneDrive credentials found - tests requiring OneDrive will be skipped")
-		log.Warn().Msg("This is expected in CI environments without AWS S3 access")
-		skipAuthTests = true
-		
-		// Run minimal tests that don't require OneDrive connection
-		fmt.Println("⚠️  Running in offline mode - OneDrive-dependent tests will be skipped")
-		code := m.Run()
-		os.Exit(code)
+		// In CI or mock mode: skip tests that need auth (no interactive login)
+		if os.Getenv("CI") == "1" || os.Getenv("ONEDRIVER_MOCK") == "1" {
+			log.Warn().Msg("⚠️  No valid OneDrive credentials found - tests requiring OneDrive will be skipped")
+			log.Warn().Msg("This is expected in CI environments without AWS S3 access")
+			skipAuthTests = true
+			fmt.Println("⚠️  Running in offline mode - OneDrive-dependent tests will be skipped")
+			code := m.Run()
+			os.Exit(code)
+		}
+		// Local mode: let Authenticate() show the OAuth dialog to obtain credentials
+		fmt.Println("No credentials found — starting OAuth flow to obtain them...")
 	}
 
 	auth = graph.Authenticate(graph.AuthConfig{}, authTokenPath, false)

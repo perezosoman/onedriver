@@ -1,6 +1,7 @@
 package graph
 
 import (
+	"os"
 	"testing"
 	"time"
 
@@ -39,6 +40,11 @@ func TestAuthRefresh(t *testing.T) {
 	t.Parallel()
 	if !AuthAvailable {
 		t.Skip("OneDrive credentials not available")
+	}
+	// Only test forced refresh with mock server — with real credentials,
+	// a failed refresh would trigger the OAuth GUI (GTK/WebKit) and crash.
+	if os.Getenv("ONEDRIVER_MOCK") != "1" {
+		t.Skip("Skipping forced refresh test with real credentials (would open GUI)")
 	}
 	require.FileExists(t, ".auth_tokens.json")
 
