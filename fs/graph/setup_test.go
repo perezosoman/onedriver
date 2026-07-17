@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/jstaf/onedriver/fs/graph/mock"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 )
@@ -32,6 +33,23 @@ var AuthAvailable bool
 
 func TestMain(m *testing.M) {
 	os.Chdir("../..")
+
+	// When ONEDRIVER_MOCK is set, use a local mock server instead of the real
+	// Microsoft Graph API.
+	if os.Getenv("ONEDRIVER_MOCK") == "1" {
+		mockServer := mock.NewServer()
+		SetGraphURL(mockServer.URL())
+		mockAuth := fmt.Sprintf(
+			`{"access_token":"mock-token","refresh_token":"mock-refresh",`+
+				`"expires_at":9999999999,"account":"test@mock.local",`+
+				`"config":{"tokenURL":"%s/token"}}`,
+			mockServer.URL(),
+		)
+		os.WriteFile(".auth_tokens.json", []byte(mockAuth), 0600)
+		fmt.Println("Mock enabled, GraphURL:", mockServer.URL())
+		_ = mockServer
+	}
+
 	f, _ := os.OpenFile("fusefs_tests.log", os.O_TRUNC|os.O_CREATE|os.O_RDWR, 0644)
 	zerolog.SetGlobalLevel(zerolog.TraceLevel)
 	log.Logger = log.Output(zerolog.ConsoleWriter{Out: f, TimeFormat: "15:04:05"})

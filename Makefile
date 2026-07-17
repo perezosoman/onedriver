@@ -1,4 +1,4 @@
-.PHONY: all, test, test-init, srpm, rpm, dsc, changes, deb, clean, install, uninstall
+.PHONY: all, test, test-mock, test-init, srpm, rpm, dsc, changes, deb, clean, install, uninstall
 
 # autocalculate software/package versions
 VERSION := $(shell grep Version onedriver.spec | sed 's/Version: *//g')
@@ -138,6 +138,19 @@ test: onedriver onedriver-launcher dmel.fa
 	$(CGO_CFLAGS) go test -c ./fs/offline
 	@echo "sudo is required to run tests of offline functionality:"
 	sudo unshare -n sudo -u $(TEST_UID) ./offline.test -test.v -test.parallel=8 -test.count=1
+
+
+# Run tests using the local mock Graph API server instead of real OneDrive
+# credentials. Useful for local development and CI environments without
+# access to OneDrive test accounts.
+test-mock: onedriver onedriver-launcher
+	dd if=/dev/urandom of=dmel.fa bs=1024 count=1024 2>/dev/null
+	rm -f *.race* fusefs_tests.log
+	CGO_ENABLED=0 ONEDRIVER_MOCK=1 gotest -v -parallel=8 -count=1 $(shell go list ./ui/... | grep -v offline)
+	$(CGO_CFLAGS) ONEDRIVER_MOCK=1 gotest -v -parallel=8 -count=1 ./cmd/...
+	$(CGO_CFLAGS) ONEDRIVER_MOCK=1 $(GORACE) gotest -race -v -parallel=8 -count=1 ./fs/graph/...
+	@echo "Note: fs/ tests require a FUSE mount and cannot run with the mock server."
+	@echo "Use 'make test' (requires real OneDrive credentials) to run full fs/ tests."
 
 
 # will literally purge everything: all built artifacts, all logs, all tests,

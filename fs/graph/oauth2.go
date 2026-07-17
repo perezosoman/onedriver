@@ -95,8 +95,11 @@ func (a *Auth) FromFile(file string) error {
 	}
 
 	// load refresh token from system keyring (fallback: keep whatever was in the JSON)
-	if token, err := keyring.Get("onedriver", file); err == nil {
-		a.RefreshToken = token
+	// Skip keyring in mock mode — dbus may not be available in test environments.
+	if os.Getenv("ONEDRIVER_MOCK") != "1" {
+		if token, err := keyring.Get("onedriver", file); err == nil {
+			a.RefreshToken = token
+		}
 	}
 	return a.applyDefaults()
 }
