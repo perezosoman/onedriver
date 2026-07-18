@@ -86,8 +86,12 @@ func TestMain(m *testing.M) {
 			Msg("Starting tests")
 	}
 
-	// CI mode: refresh tokens if expired, but never open GUI/headless prompt
+	// CI mode: refresh tokens if expired, but never open GUI/headless prompt.
+	// Track whether refresh succeeded so we don't cascade a failed refresh
+	// into Request() → Refresh() → newAuth() → URL prompt, which would hang
+	// CI waiting for interactive stdin input.
 	if AuthAvailable && os.Getenv("CI") != "" {
+		refreshSucceeded := false
 		auth := &Auth{}
 		if err := auth.FromFile(authTokenPath); err == nil {
 			// FromFile skips keyring in test binaries to avoid dbus hangs.
@@ -107,9 +111,21 @@ func TestMain(m *testing.M) {
 				resp, err := http.Post(auth.TokenURL,
 					"application/x-www-form-urlencoded",
 					strings.NewReader(data.Encode()))
-				if err != nil {
-					log.Warn().Err(err).Msg("Token refresh failed in CI — tests may fail with expired tokens")
-				} else {
+				switch {
+				case err != nil:
+					log.Warn().Err(err).Msg("Token refresh failed in CI — tests will be skipped")
+				case resp.StatusCode < 200 || resp.StatusCode >= 300:
+					// Microsoft returns 400 (invalid_grant) for expired refresh
+					// tokens. Reading the body here is safe — we discard it
+					// without unmarshalling into auth, so stale fields cannot
+					// "look like" a successful refresh.
+					body, _ := io.ReadAll(resp.Body)
+					resp.Body.Close()
+					log.Warn().
+						Int("status", resp.StatusCode).
+						Bytes("body", body).
+						Msg("Token refresh returned non-2xx status in CI — tests will be skipped")
+				default:
 					body, _ := io.ReadAll(resp.Body)
 					resp.Body.Close()
 					oldTime := auth.ExpiresAt
@@ -119,18 +135,31 @@ func TestMain(m *testing.M) {
 					}
 					if auth.AccessToken != "" && auth.RefreshToken != "" {
 						auth.ToFile(authTokenPath)
+						refreshSucceeded = true
 						log.Info().Msg("Tokens refreshed successfully in CI")
 					} else {
-						log.Warn().Msg("Token refresh returned invalid tokens in CI")
+						log.Warn().Msg("2xx response but missing token fields in CI — tests will be skipped")
 					}
 				}
 			}
+		} else {
+			log.Warn().Err(err).Msg("Failed to load auth tokens from disk in CI — tests will be skipped")
+		}
+
+		// Only attempt to validate tokens against the live Graph API if the
+		// refresh succeeded. Otherwise, calling GetUser/GetDrive would cascade
+		// into Refresh() → newAuth() → OAuth URL prompt, hanging CI. Setting
+		// AuthAvailable=false causes gated tests to skip cleanly with t.Skip().
+		if refreshSucceeded {
 			user, _ := GetUser(context.Background(), auth)
 			drive, _ := GetDrive(context.Background(), auth)
 			log.Info().
 				Str("account", user.UserPrincipalName).
 				Str("type", drive.DriveType).
 				Msg("Starting tests (CI, headless)")
+		} else if AuthAvailable {
+			log.Warn().Msg("Disabling auth tests in CI — credentials unavailable or refresh failed")
+			AuthAvailable = false
 		}
 	}
 

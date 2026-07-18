@@ -139,11 +139,25 @@ func (a *Auth) Refresh() {
 		} else {
 			// put here so as to avoid spamming the log when offline
 			log.Info().Msg("Auth tokens expired, attempting renewal.")
+			// Close resp.Body only when we received a response. Guarded
+			// because http.Post may return resp=nil with err!=nil in
+			// certain malformed/redirect-loop scenarios; deferring
+			// unconditionally would nil-deref the test binary.
+			defer func() {
+				if resp != nil && resp.Body != nil {
+					resp.Body.Close()
+				}
+			}()
 		}
-		defer resp.Body.Close()
 
 		body, _ := io.ReadAll(resp.Body)
-		json.Unmarshal(body, &a)
+		if err := json.Unmarshal(body, a); err != nil {
+			// Could not parse the response body — likely a redirect HTML page
+			// or a proxy error. Surface this so silent fallback to newAuth
+			// (or the manual "stale AccessToken carried forward" trap) does
+			// not bite us.
+			log.Warn().Err(err).Bytes("body", body).Msg("Could not parse token refresh response")
+		}
 		if a.ExpiresAt == oldTime {
 			a.ExpiresAt = time.Now().Unix() + a.ExpiresIn
 		}
@@ -153,6 +167,16 @@ func (a *Auth) Refresh() {
 				Bytes("response", body).
 				Int("http_code", resp.StatusCode).
 				Msg("Failed to renew access tokens. Attempting to reauthenticate.")
+			// CRITICAL: do NOT prompt for interactive OAuth in CI or mock mode.
+			// Such a prompt would block on stdin forever and time out the test
+			// binary. In CI, callers should detect the stale token state and
+			// either skip dependent work or fail fast. In mock mode, the test
+			// harness expects a self-contained server-side refresh path.
+			if os.Getenv("CI") != "" || os.Getenv("ONEDRIVER_MOCK") == "1" {
+				log.Error().
+					Msg("Refusing to trigger interactive reauth in CI/mock mode; tokens remain stale")
+				return
+			}
 			a = newAuth(a.AuthConfig, a.path, false)
 		} else {
 			a.ToFile(a.path)

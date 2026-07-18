@@ -70,13 +70,60 @@ jobs:
 
       - name: Setup mock fallback if no valid auth tokens
         run: |
+          # Enable ONEDRIVER_MOCK=1 whenever the access token is missing or
+          # stale, so setup_test.go's CI block never refreshes against the
+          # real Microsoft endpoint (a failed refresh cascades into an OAuth
+          # URL prompt that hangs the test binary).
+          # Second-line defence: fs/graph/oauth2.go::Refresh refuses to call
+          # newAuth in CI/MOCK if a stale token ever slips past this check.
+          USE_MOCK=0
+          REASON=""
+
           if [ ! -s .auth_tokens.json ] || grep -q '^{}$' .auth_tokens.json; then
+            USE_MOCK=1
+            REASON=".auth_tokens.json is empty or a {} placeholder"
+          elif command -v jq >/dev/null 2>&1; then
+            expires_at=$(jq -r '.expires_at // null' .auth_tokens.json 2>/dev/null)
+            # Validate expires_at carefully: it must be a JSON integer for
+            # bash arithmetic to work. String-typed or malformed values would
+            # otherwise produce "integer expression expected" and silently fall
+            # through to the "real credentials" branch.
+            case "$expires_at" in
+              null|"")
+                USE_MOCK=1
+                REASON="no expires_at field found (not an onedriver auth file)"
+                ;;
+              *)
+                if ! [[ "$expires_at" =~ ^[0-9]+$ ]]; then
+                  USE_MOCK=1
+                  REASON="expires_at is not an integer ($expires_at)"
+                else
+                  now=$(date +%s)
+                  if [ "$expires_at" -lt "$now" ]; then
+                    USE_MOCK=1
+                    REASON="access token expired (expires_at=$expires_at < now=$now)"
+                  else
+                    expiry_iso=$(date -u -d "@$expires_at" '+%Y-%m-%dT%H:%M:%SZ' 2>/dev/null || echo "$expires_at")
+                    REASON="real credentials (valid until $expiry_iso)"
+                  fi
+                fi
+                ;;
+            esac
+          else
+            # jq not installed — fall back to the legacy length-based check.
+            # This is safe: fs/graph/oauth2.go::Refresh refuses to call
+            # newAuth() in CI/MOCK, so a stale-token refresh will at worst
+            # log a warning and let tests skip cleanly.
+            REASON="jq unavailable; using legacy length-based check"
+          fi
+
+          if [ "$USE_MOCK" = "1" ]; then
             echo "ONEDRIVER_MOCK=1" >> $GITHUB_ENV
             # Generate a smaller dummy dmel.fa for mock mode (1 MB)
             dd if=/dev/urandom of=dmel.fa bs=1024 count=1024 2>/dev/null
-            echo "⚠️  No valid OneDrive credentials — tests will run with mock Graph API"
+            echo "⚠️  Falling back to mock Graph API: $REASON"
           else
-            echo "✅ Using real OneDrive credentials"
+            echo "✅ $REASON"
           fi
 
       - name: Run tests
