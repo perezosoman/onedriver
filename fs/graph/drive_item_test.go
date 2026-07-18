@@ -13,7 +13,7 @@ func TestGetItem(t *testing.T) {
 		t.Skip("OneDrive credentials not available")
 	}
 	var auth Auth
-	auth.FromFile(".auth_tokens.json")
+	auth.FromFile(authTokenPath)
 	item, err := GetItemPath(context.Background(), "/", &auth)
 	assert.NoError(t, err)
 	assert.Equal(t, "root", item.Name, "Failed to fetch directory root.")

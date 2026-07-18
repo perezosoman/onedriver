@@ -101,11 +101,23 @@ jobs:
           # cannot run systemd tests here because github actions runners don't have dbus setup +
           # if CGO is on, the UI tests will take foreverrrrr
           bash cgo-helper.sh
+          echo "Running test ui with CGO_ENABLED=0 and ONEDRIVER_MOCK=${ONEDRIVER_MOCK:-}"
           CGO_ENABLED=0 ONEDRIVER_MOCK="${ONEDRIVER_MOCK:-}" gotest -v -tags=glib_2_64 -covermode=count -coverpkg=./ui/... -coverprofile=ui.coverage ./ui
+          echo " ################################################# "
+          echo "Running test common with CGO_ENABLED=0 and ONEDRIVER_MOCK=${ONEDRIVER_MOCK:-}"
           ONEDRIVER_MOCK="${ONEDRIVER_MOCK:-}" gotest -v -tags=glib_2_64 -covermode=count -coverpkg=./cmd/common -coverprofile=common.coverage ./cmd/common
+          echo " ################################################# "
+          echo "Running test quickxorhash with CGO_ENABLED=0 and ONEDRIVER_MOCK=${ONEDRIVER_MOCK:-}"
+          
           ONEDRIVER_MOCK="${ONEDRIVER_MOCK:-}" gotest -v -tags=glib_2_64 -covermode=count -coverpkg=./fs/... -coverprofile=quickxorhash.coverage ./fs/graph/quickxorhash
+          
+          echo " ################################################# "
+          echo "Running test graph with CGO_ENABLED=0 and ONEDRIVER_MOCK=${ONEDRIVER_MOCK:-}"
+
           CGO_ENABLED=0 ONEDRIVER_MOCK="${ONEDRIVER_MOCK:-}" gotest -v -tags=glib_2_64 -covermode=count -coverpkg=./fs/... -coverprofile=graph.coverage ./fs/graph
+          echo " ################################################# "
           if [ "${ONEDRIVER_MOCK:-}" != "1" ]; then
+            echo "Running test fs/ with CGO_ENABLED=0 and ONEDRIVER_MOCK=${ONEDRIVER_MOCK:-}"
             gotest -v -tags=glib_2_64 -covermode=count -coverpkg=./fs/... -coverprofile=fs.coverage ./fs
             go test -c -tags=glib_2_64 -covermode=count -coverpkg=./fs/... ./fs/offline
             sudo unshare -n -S $(id -u) -G $(id -g) ./offline.test -test.v -test.coverprofile=offline.coverage
@@ -114,7 +126,9 @@ jobs:
             echo 'mode: set' > fs.coverage
             echo 'mode: set' > offline.coverage
           fi
-
+          echo " ################################################# "
+          echo "End of tests. Combining coverage profiles..."
+      
       - name: Copy new auth tokens to S3
         # This step will fail gracefully if AWS credentials are not available
         if: always()
@@ -126,6 +140,7 @@ jobs:
           AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           ACCOUNT_TYPE: ${{ matrix.account_type }}
         continue-on-error: true
+
 
       - name: Combine test coverage into single file
         run: |

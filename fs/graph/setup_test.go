@@ -36,13 +36,14 @@ func hasValidAuthTokens(path string) bool {
 // credentials were found. Tests that require authentication should call
 // t.Skip() when this is false.
 var AuthAvailable bool
+var authTokenPath string = ".auth_tokens.json"
 
 func TestMain(m *testing.M) {
 	os.Chdir("../..")
 
 	// When ONEDRIVER_MOCK is set, use a local mock server instead of the real
 	// Microsoft Graph API. Uses a separate file to avoid overwriting real credentials.
-	authTokenPath := ".auth_tokens.json"
+	authTokenPath = ".auth_tokens.json"
 	var mockServer *mock.Server
 	if os.Getenv("ONEDRIVER_MOCK") == "1" {
 		mockServer = mock.NewServer()
