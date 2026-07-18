@@ -2,10 +2,15 @@ package graph
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"io"
+	"net/http"
+	"net/url"
 	"os"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/jstaf/onedriver/fs/graph/mock"
 	"github.com/rs/zerolog"
@@ -36,9 +41,11 @@ func TestMain(m *testing.M) {
 	os.Chdir("../..")
 
 	// When ONEDRIVER_MOCK is set, use a local mock server instead of the real
-	// Microsoft Graph API.
+	// Microsoft Graph API. Uses a separate file to avoid overwriting real credentials.
+	authTokenPath := ".auth_tokens.json"
+	var mockServer *mock.Server
 	if os.Getenv("ONEDRIVER_MOCK") == "1" {
-		mockServer := mock.NewServer()
+		mockServer = mock.NewServer()
 		SetGraphURL(mockServer.URL())
 		mockAuth := fmt.Sprintf(
 			`{"access_token":"mock-token","refresh_token":"mock-refresh",`+
@@ -46,9 +53,9 @@ func TestMain(m *testing.M) {
 				`"config":{"tokenURL":"%s/token"}}`,
 			mockServer.URL(),
 		)
-		os.WriteFile(".auth_tokens.json", []byte(mockAuth), 0600)
+		os.WriteFile(".auth_tokens_mock.json", []byte(mockAuth), 0600)
+		authTokenPath = ".auth_tokens_mock.json"
 		fmt.Println("Mock enabled, GraphURL:", mockServer.URL())
-		_ = mockServer
 	}
 
 	f, _ := os.OpenFile("fusefs_tests.log", os.O_TRUNC|os.O_CREATE|os.O_RDWR, 0644)
@@ -57,7 +64,6 @@ func TestMain(m *testing.M) {
 	defer f.Close()
 
 	// Check if we have valid auth tokens
-	authTokenPath := ".auth_tokens.json"
 	if hasValidAuthTokens(authTokenPath) {
 		AuthAvailable = true
 	} else if os.Getenv("CI") != "" || os.Getenv("ONEDRIVER_MOCK") == "1" {
@@ -79,5 +85,62 @@ func TestMain(m *testing.M) {
 			Msg("Starting tests")
 	}
 
-	os.Exit(m.Run())
+	// CI mode: refresh tokens if expired, but never open GUI/headless prompt
+	if AuthAvailable && os.Getenv("CI") != "" {
+		auth := &Auth{}
+		if err := auth.FromFile(authTokenPath); err == nil {
+			// FromFile skips keyring in test binaries to avoid dbus hangs.
+			// In CI we need the refresh token — load it from keyring explicitly.
+			if auth.RefreshToken == "" {
+				if token, err := keyringGet(authTokenPath); err == nil {
+					auth.RefreshToken = token
+				}
+			}
+			if auth.RefreshToken != "" {
+				data := url.Values{
+					"client_id":     {auth.ClientID},
+					"redirect_uri":  {auth.RedirectURL},
+					"refresh_token": {auth.RefreshToken},
+					"grant_type":    {"refresh_token"},
+				}
+				resp, err := http.Post(auth.TokenURL,
+					"application/x-www-form-urlencoded",
+					strings.NewReader(data.Encode()))
+				if err != nil {
+					log.Warn().Err(err).Msg("Token refresh failed in CI — tests may fail with expired tokens")
+				} else {
+					body, _ := io.ReadAll(resp.Body)
+					resp.Body.Close()
+					oldTime := auth.ExpiresAt
+					json.Unmarshal(body, &auth)
+					if auth.ExpiresAt == oldTime {
+						auth.ExpiresAt = time.Now().Unix() + auth.ExpiresIn
+					}
+					if auth.AccessToken != "" && auth.RefreshToken != "" {
+						auth.ToFile(authTokenPath)
+						log.Info().Msg("Tokens refreshed successfully in CI")
+					} else {
+						log.Warn().Msg("Token refresh returned invalid tokens in CI")
+					}
+				}
+			}
+			user, _ := GetUser(context.Background(), auth)
+			drive, _ := GetDrive(context.Background(), auth)
+			log.Info().
+				Str("account", user.UserPrincipalName).
+				Str("type", drive.DriveType).
+				Msg("Starting tests (CI, headless)")
+		}
+	}
+
+	code := m.Run()
+	if mockServer != nil {
+		mockServer.Close()
+	}
+	os.Exit(code)
+}
+
+// keyringGet wraps keyring.Get to avoid direct imports in test setup.
+func keyringGet(path string) (string, error) {
+	return keyringGetImpl(path)
 }

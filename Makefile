@@ -153,6 +153,28 @@ test-mock: onedriver onedriver-launcher
 	@echo "Use 'make test' (requires real OneDrive credentials) to run full fs/ tests."
 
 
+# CI-compatible headless tests: auto-detects credentials and uses mock if none
+# found. No GUI, no interactive prompts — safe for CI, SSH, or headless setups.
+# Usage: make test-headless
+test-headless: onedriver
+	dd if=/dev/urandom of=dmel.fa bs=1024 count=1024 2>/dev/null
+	rm -f *.race* fusefs_tests.log
+	@if [ -s .auth_tokens.json ] && ! grep -q '^{}$$' .auth_tokens.json 2>/dev/null && \
+	    python3 -c "import json; t=json.load(open('.auth_tokens.json')); exit(0 if len(t.get('access_token',''))>5 and '127.0.0.1' not in t.get('config',{}).get('tokenURL','') and 'localhost' not in t.get('config',{}).get('tokenURL','') else 1)" 2>/dev/null; then \
+		echo "*** Using existing OneDrive credentials (headless mode) ***"; \
+		CI=true CGO_ENABLED=0 gotest -v -parallel=8 -count=1 $(shell go list ./ui/... | grep -v offline); \
+		CI=true CGO_ENABLED=0 gotest -v -parallel=8 -count=1 ./cmd/...; \
+		CI=true CGO_ENABLED=0 gotest -v -parallel=8 -count=1 ./fs/graph/...; \
+		echo "Note: fs/ tests require a FUSE mount — run 'make test' for those."; \
+	else \
+		echo "*** No valid credentials found — using mock Graph API ***"; \
+		CI=true CGO_ENABLED=0 ONEDRIVER_MOCK=1 gotest -v -parallel=8 -count=1 $(shell go list ./ui/... | grep -v offline); \
+		CI=true CGO_ENABLED=0 ONEDRIVER_MOCK=1 gotest -v -parallel=8 -count=1 ./cmd/...; \
+		CI=true CGO_ENABLED=0 ONEDRIVER_MOCK=1 gotest -v -parallel=8 -count=1 ./fs/graph/...; \
+		echo "Note: fs/ tests require a FUSE mount — run 'make test' for those."; \
+	fi
+
+
 # will literally purge everything: all built artifacts, all logs, all tests,
 # all files tests depend on, all auth tokens... EVERYTHING
 clean:
