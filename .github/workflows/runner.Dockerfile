@@ -1,0 +1,24 @@
+FROM golang:1.25-bookworm
+
+# Avoid interactive prompts during apt-get
+ENV DEBIAN_FRONTEND=noninteractive
+
+# Install all apt dependencies (including heavy ones like webkit and libreoffice)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    gcc \
+    pkg-config \
+    libwebkit2gtk-4.1-dev \
+    libjson-glib-dev \
+    make \
+    wget \
+    rpm \
+    libreoffice \
+    curl \
+    git \
+    ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+# Pre-install Go test and coverage utilities
+RUN go install golang.org/x/tools/cmd/goimports@latest \
+    && go install github.com/rakyll/gotest@latest \
+    && go install github.com/wadey/gocovmerge@latest
