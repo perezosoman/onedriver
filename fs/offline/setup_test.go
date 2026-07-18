@@ -60,7 +60,16 @@ func TestMain(m *testing.M) {
 		os.Exit(0)
 	}
 
-	auth = graph.Authenticate(graph.AuthConfig{}, authTokenPath, false)
+	if os.Getenv("CI") != "" {
+		// CI: load tokens only, skip refresh (no interactive auth available)
+		auth = &graph.Auth{}
+		if err := auth.FromFile(authTokenPath); err != nil {
+			fmt.Println("Failed to load auth tokens in CI:", err)
+			os.Exit(1)
+		}
+	} else {
+		auth = graph.Authenticate(graph.AuthConfig{}, authTokenPath, false)
+	}
 	inode, err := graph.GetItem(context.Background(), "root", auth)
 	if inode != nil || !graph.IsOffline(err) {
 		fmt.Println("These tests must be run offline.")

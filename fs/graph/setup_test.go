@@ -60,7 +60,7 @@ func TestMain(m *testing.M) {
 	authTokenPath := ".auth_tokens.json"
 	if hasValidAuthTokens(authTokenPath) {
 		AuthAvailable = true
-	} else if os.Getenv("CI") == "1" || os.Getenv("ONEDRIVER_MOCK") == "1" {
+	} else if os.Getenv("CI") != "" || os.Getenv("ONEDRIVER_MOCK") == "1" {
 		// CI/mock mode: skip authenticated tests (no interactive login available)
 		fmt.Println("⚠️  OneDrive credentials not available — authenticated tests will be skipped")
 	} else {
@@ -69,7 +69,7 @@ func TestMain(m *testing.M) {
 		AuthAvailable = true
 	}
 
-	if AuthAvailable && os.Getenv("CI") != "1" {
+	if AuthAvailable && os.Getenv("CI") == "" {
 		auth := Authenticate(AuthConfig{}, authTokenPath, false)
 		user, _ := GetUser(context.Background(), auth)
 		drive, _ := GetDrive(context.Background(), auth)

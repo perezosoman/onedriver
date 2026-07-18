@@ -98,7 +98,7 @@ func TestMain(m *testing.M) {
 
 	if !hasValidAuth {
 		// In CI or mock mode: skip tests that need auth (no interactive login)
-		if os.Getenv("CI") == "1" || os.Getenv("ONEDRIVER_MOCK") == "1" {
+		if os.Getenv("CI") != "" || os.Getenv("ONEDRIVER_MOCK") == "1" {
 			log.Warn().Msg("⚠️  No valid OneDrive credentials found - tests requiring OneDrive will be skipped")
 			log.Warn().Msg("This is expected in CI environments without AWS S3 access")
 			skipAuthTests = true
@@ -110,7 +110,15 @@ func TestMain(m *testing.M) {
 		fmt.Println("No credentials found — starting OAuth flow to obtain them...")
 	}
 
-	auth = graph.Authenticate(graph.AuthConfig{}, authTokenPath, false)
+	if os.Getenv("CI") != "" {
+		// CI: load tokens only, skip refresh (no interactive auth available)
+		auth = &graph.Auth{}
+		if err := auth.FromFile(authTokenPath); err != nil {
+			log.Error().Err(err).Msg("Failed to load auth tokens in CI")
+		}
+	} else {
+		auth = graph.Authenticate(graph.AuthConfig{}, authTokenPath, false)
+	}
 	fs = NewFilesystem(auth, filepath.Join(testDBLoc, "test"))
 	server, _ := fuse.NewServer(
 		fs,
