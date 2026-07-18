@@ -69,7 +69,7 @@ func TestMain(m *testing.M) {
 		AuthAvailable = true
 	}
 
-	if AuthAvailable {
+	if AuthAvailable && os.Getenv("CI") != "1" {
 		auth := Authenticate(AuthConfig{}, authTokenPath, false)
 		user, _ := GetUser(context.Background(), auth)
 		drive, _ := GetDrive(context.Background(), auth)

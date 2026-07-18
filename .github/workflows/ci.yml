@@ -104,7 +104,7 @@ jobs:
           CGO_ENABLED=0 ONEDRIVER_MOCK="${ONEDRIVER_MOCK:-}" gotest -v -tags=glib_2_64 -covermode=count -coverpkg=./ui/... -coverprofile=ui.coverage ./ui
           ONEDRIVER_MOCK="${ONEDRIVER_MOCK:-}" gotest -v -tags=glib_2_64 -covermode=count -coverpkg=./cmd/common -coverprofile=common.coverage ./cmd/common
           ONEDRIVER_MOCK="${ONEDRIVER_MOCK:-}" gotest -v -tags=glib_2_64 -covermode=count -coverpkg=./fs/... -coverprofile=quickxorhash.coverage ./fs/graph/quickxorhash
-          ONEDRIVER_MOCK="${ONEDRIVER_MOCK:-}" gotest -v -tags=glib_2_64 -covermode=count -coverpkg=./fs/... -coverprofile=graph.coverage ./fs/graph
+          CGO_ENABLED=0 ONEDRIVER_MOCK="${ONEDRIVER_MOCK:-}" gotest -v -tags=glib_2_64 -covermode=count -coverpkg=./fs/... -coverprofile=graph.coverage ./fs/graph
           if [ "${ONEDRIVER_MOCK:-}" != "1" ]; then
             gotest -v -tags=glib_2_64 -covermode=count -coverpkg=./fs/... -coverprofile=fs.coverage ./fs
             go test -c -tags=glib_2_64 -covermode=count -coverpkg=./fs/... ./fs/offline
