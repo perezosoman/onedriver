@@ -22,3 +22,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 RUN go install golang.org/x/tools/cmd/goimports@latest \
     && go install github.com/rakyll/gotest@latest \
     && go install github.com/wadey/gocovmerge@latest
+
+# Pre-download project Go module dependencies.
+# Copying only go.mod and go.sum means this layer is only invalidated when
+# dependencies actually change, keeping rebuilds fast.
+WORKDIR /onedriver-deps
+COPY go.mod go.sum ./
+RUN go mod download
