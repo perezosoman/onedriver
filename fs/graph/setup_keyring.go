@@ -31,3 +31,20 @@ func keyringGetImpl(path string) (string, error) {
 		return "", errKeyringTimeout
 	}
 }
+
+// keyringSetImpl attempts to write a keyring secret with a timeout to avoid
+// hangs when dbus is not available. ToFile() invokes this on every save
+// (e.g. after a successful refresh), so without the wrapper a blackholed
+// dbus would block the entire token-persistence path indefinitely.
+func keyringSetImpl(path, secret string) error {
+	ch := make(chan error, 1)
+	go func() {
+		ch <- keyring.Set("onedriver", path, secret)
+	}()
+	select {
+	case err := <-ch:
+		return err
+	case <-time.After(3 * time.Second):
+		return errKeyringTimeout
+	}
+}

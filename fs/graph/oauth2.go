@@ -15,7 +15,6 @@ import (
 	"dario.cat/mergo"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
-	"github.com/zalando/go-keyring"
 )
 
 // these are default values if not specified
@@ -67,20 +66,40 @@ type AuthError struct {
 	CorrelationID    string `json:"correlation_id"`
 }
 
-// ToFile writes auth tokens to a file
+// ToFile writes auth tokens to a file.
+//
+// The refresh_token is best-effort ALSO written to the system keyring as
+// defense-in-depth (when a desktop secret-service is available, this is
+// strictly better than plaintext). However, it is ALWAYS also persisted
+// on disk so that environments without a working keyring (no DBus
+// session, headless container, CI runner, fresh SSH login) do not
+// silently lose the refresh capability — historically this caused
+// `make test` to generate a .auth_tokens.json with an empty
+// refresh_token, forcing full re-authentication on every subsequent
+// invocation.
+//
+// The disk JSON file is 0600 (owner-only read), matching the effective
+// security level of the keyring for the same user. Keyring write
+// failures are logged as warnings, never as errors — the disk copy is
+// canonical for refresh purposes.
 func (a Auth) ToFile(file string) error {
 	a.path = file
 
-	// store refresh token in system keyring instead of on disk
 	if a.RefreshToken != "" {
-		if err := keyring.Set("onedriver", file, a.RefreshToken); err != nil {
-			log.Warn().Err(err).Msg("Failed to store refresh token in keyring")
+		// Route through keyringSetImpl so dbus-timeout hangs cannot block
+		// the call (mirrors the keyringGetImpl timeout for reads).
+		if err := keyringSetImpl(file, a.RefreshToken); err != nil {
+			log.Warn().
+				Err(err).
+				Str("path", file).
+				Msg("Failed to store refresh token in keyring; refresh_token will be sourced from disk on next load")
 		}
 	}
 
-	stored := a
-	stored.RefreshToken = ""
-	byteData, _ := json.Marshal(stored)
+	byteData, err := json.Marshal(a)
+	if err != nil {
+		return err
+	}
 	return os.WriteFile(file, byteData, 0600)
 }
 
@@ -98,8 +117,10 @@ func (a *Auth) FromFile(file string) error {
 
 	// load refresh token from system keyring (fallback: keep whatever was in the JSON)
 	// Skip keyring when running under go test or in mock mode — dbus may hang.
+	// keyringGetImpl wraps the read in a 3-second timeout so a blackholed
+	// dbus can never block token loading.
 	if os.Getenv("ONEDRIVER_MOCK") != "1" && !isTestBinary() {
-		if token, err := keyring.Get("onedriver", file); err == nil {
+		if token, err := keyringGetImpl(file); err == nil && token != "" {
 			a.RefreshToken = token
 		}
 	}
@@ -150,13 +171,24 @@ func (a *Auth) Refresh() {
 			}()
 		}
 
-		body, _ := io.ReadAll(resp.Body)
+		body, readErr := io.ReadAll(resp.Body)
+		if readErr != nil {
+			log.Warn().
+				Err(readErr).
+				Msg("Could not read token refresh response body; tokens remain stale")
+			return
+		}
 		if err := json.Unmarshal(body, a); err != nil {
 			// Could not parse the response body — likely a redirect HTML page
-			// or a proxy error. Surface this so silent fallback to newAuth
-			// (or the manual "stale AccessToken carried forward" trap) does
-			// not bite us.
-			log.Warn().Err(err).Bytes("body", body).Msg("Could not parse token refresh response")
+			// or a proxy error. Bail out immediately so silent fallback to
+			// newAuth (or the manual "stale AccessToken carried forward"
+			// trap that calls a.ToFile() with the original fields intact)
+			// does not bite us.
+			log.Warn().
+				Err(err).
+				Bytes("body", body).
+				Msg("Could not parse token refresh response; tokens remain stale")
+			return
 		}
 		if a.ExpiresAt == oldTime {
 			a.ExpiresAt = time.Now().Unix() + a.ExpiresIn
@@ -236,9 +268,26 @@ func getAuthTokens(a AuthConfig, authCode string) *Auth {
 	}
 	defer resp.Body.Close()
 
-	body, _ := io.ReadAll(resp.Body)
+	body, readErr := io.ReadAll(resp.Body)
+	if readErr != nil {
+		log.Fatal().
+			Err(readErr).
+			Int("status", resp.StatusCode).
+			Msg("Could not read token endpoint response body")
+	}
 	var auth Auth
-	json.Unmarshal(body, &auth)
+	if err := json.Unmarshal(body, &auth); err != nil {
+		// Treat unparseable responses as fatal in initial auth: a partial
+		// Auth struct would silently propagate empty AccessToken /
+		// RefreshToken downstream and force users into an infinite
+		// reauth loop.
+		log.Error().
+			Err(err).
+			Int("status", resp.StatusCode).
+			Bytes("response", body).
+			Msg("Could not parse token endpoint response")
+		log.Fatal().Msg("Failed to parse auth tokens. Authentication cannot continue.")
+	}
 	if auth.ExpiresAt == 0 {
 		auth.ExpiresAt = time.Now().Unix() + auth.ExpiresIn
 	}
