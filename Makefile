@@ -138,6 +138,10 @@ test: onedriver onedriver-launcher dmel.fa
 	$(CGO_CFLAGS) go test -c ./fs/offline
 	@echo "sudo is required to run tests of offline functionality:"
 	sudo unshare -n sudo -u $(TEST_UID) ./offline.test -test.v -test.parallel=8 -test.count=1
+	# scripts/validateauth: cross-platform unit tests for scripts/validate-auth.sh.
+	# Hermetic — no FUSE, no GTK, no network, no sudo. Add new packages under
+	# scripts/ freely; `go test ./scripts/...` picks them up automatically.
+	gotest -v -parallel=8 -count=1 ./scripts/...
 
 
 # Run tests using the local mock Graph API server instead of real OneDrive
@@ -151,6 +155,10 @@ test-mock: onedriver onedriver-launcher
 	$(CGO_CFLAGS) ONEDRIVER_MOCK=1 $(GORACE) gotest -race -v -parallel=8 -count=1 ./fs/graph/...
 	@echo "Note: fs/ tests require a FUSE mount and cannot run with the mock server."
 	@echo "Use 'make test' (requires real OneDrive credentials) to run full fs/ tests."
+	# scripts/validateauth: hermetic + ONEDRIVER_MOCK-irrelevant (the test
+	# suite writes its own mock graph state via mktemp), but we keep the
+	# prefix consistent with the surrounding gotest lines above.
+	ONEDRIVER_MOCK=1 gotest -v -parallel=8 -count=1 ./scripts/...
 
 
 # CI-compatible headless tests: auto-detects credentials and uses mock if none
@@ -173,6 +181,10 @@ test-headless: onedriver
 		CI=true CGO_ENABLED=0 ONEDRIVER_MOCK=1 gotest -v -parallel=8 -count=1 ./fs/graph/...; \
 		echo "Note: fs/ tests require a FUSE mount — run 'make test' for those."; \
 	fi
+	# scripts/validateauth: hermetic — runs identically in either branch.
+	# Place after the if/else so it always executes regardless of which
+	# auth path was taken above.
+	gotest -v -parallel=8 -count=1 ./scripts/...
 
 
 # will literally purge everything: all built artifacts, all logs, all tests,
