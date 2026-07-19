@@ -2,6 +2,7 @@ package graph
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -81,8 +82,8 @@ func (d *DriveItem) ModTimeUnix() uint64 {
 }
 
 // getItem is the internal method used to lookup items
-func getItem(path string, auth *Auth) (*DriveItem, error) {
-	body, err := Get(path, auth)
+func getItem(ctx context.Context, path string, auth *Auth) (*DriveItem, error) {
+	body, err := Get(ctx, path, auth)
 	if err != nil {
 		return nil, err
 	}
@@ -97,13 +98,13 @@ func getItem(path string, auth *Auth) (*DriveItem, error) {
 }
 
 // GetItem fetches a DriveItem by ID. ID can also be "root" for the root item.
-func GetItem(id string, auth *Auth) (*DriveItem, error) {
-	return getItem(IDPath(id), auth)
+func GetItem(ctx context.Context, id string, auth *Auth) (*DriveItem, error) {
+	return getItem(ctx, IDPath(id), auth)
 }
 
 // GetItemChild fetches the named child of an item.
-func GetItemChild(id string, name string, auth *Auth) (*DriveItem, error) {
-	return getItem(
+func GetItemChild(ctx context.Context, id string, name string, auth *Auth) (*DriveItem, error) {
+	return getItem(ctx,
 		fmt.Sprintf("%s:/%s", IDPath(id), url.PathEscape(name)),
 		auth,
 	)
@@ -111,14 +112,14 @@ func GetItemChild(id string, name string, auth *Auth) (*DriveItem, error) {
 
 // GetItemPath fetches a DriveItem by path. Only used in special cases, like for the
 // root item.
-func GetItemPath(path string, auth *Auth) (*DriveItem, error) {
-	return getItem(ResourcePath(path), auth)
+func GetItemPath(ctx context.Context, path string, auth *Auth) (*DriveItem, error) {
+	return getItem(ctx, ResourcePath(path), auth)
 }
 
 // GetItemContent retrieves an item's content from the Graph endpoint.
-func GetItemContent(id string, auth *Auth) ([]byte, uint64, error) {
+func GetItemContent(ctx context.Context, id string, auth *Auth) ([]byte, uint64, error) {
 	buf := bytes.NewBuffer(make([]byte, 0))
-	n, err := GetItemContentStream(id, auth, buf)
+	n, err := GetItemContentStream(ctx, id, auth, buf)
 	return buf.Bytes(), uint64(n), err
 }
 
@@ -126,9 +127,9 @@ func GetItemContent(id string, auth *Auth) ([]byte, uint64, error) {
 // output reader. This function assumes a brand-new io.Writer is used, so
 // "output" must be truncated if there is content already in the io.Writer
 // prior to use.
-func GetItemContentStream(id string, auth *Auth, output io.Writer) (uint64, error) {
+func GetItemContentStream(ctx context.Context, id string, auth *Auth, output io.Writer) (uint64, error) {
 	// determine the size of the item
-	item, err := GetItem(id, auth)
+	item, err := GetItem(ctx, id, auth)
 	if err != nil {
 		return 0, err
 	}
@@ -137,7 +138,7 @@ func GetItemContentStream(id string, auth *Auth, output io.Writer) (uint64, erro
 	downloadURL := fmt.Sprintf("/me/drive/items/%s/content", id)
 	if item.Size <= downloadChunkSize {
 		// simple one-shot download
-		content, err := Get(downloadURL, auth)
+		content, err := Get(ctx, downloadURL, auth)
 		if err != nil {
 			return 0, err
 		}
@@ -154,7 +155,7 @@ func GetItemContentStream(id string, auth *Auth, output io.Writer) (uint64, erro
 			Str("id", item.ID).
 			Str("name", item.Name).
 			Msgf("Downloading bytes %d-%d/%d.", start, end, item.Size)
-		content, err := Get(downloadURL, auth, Header{
+		content, err := Get(ctx, downloadURL, auth, Header{
 			key:   "Range",
 			value: fmt.Sprintf("bytes=%d-%d", start, end),
 		})
@@ -176,19 +177,19 @@ func GetItemContentStream(id string, auth *Auth, output io.Writer) (uint64, erro
 }
 
 // Remove removes a directory or file by ID
-func Remove(id string, auth *Auth) error {
-	return Delete("/me/drive/items/"+id, auth)
+func Remove(ctx context.Context, id string, auth *Auth) error {
+	return Delete(ctx, "/me/drive/items/"+id, auth)
 }
 
 // Mkdir creates a directory on the server at the specified parent ID.
-func Mkdir(name string, parentID string, auth *Auth) (*DriveItem, error) {
+func Mkdir(ctx context.Context, name string, parentID string, auth *Auth) (*DriveItem, error) {
 	// create a new folder on the server
 	newFolderPost := DriveItem{
 		Name:   name,
 		Folder: &Folder{},
 	}
 	bytePayload, _ := json.Marshal(newFolderPost)
-	resp, err := Post(childrenPathID(parentID), auth, bytes.NewReader(bytePayload))
+	resp, err := Post(ctx, childrenPathID(parentID), auth, bytes.NewReader(bytePayload))
 	if err != nil {
 		return nil, err
 	}
@@ -198,7 +199,7 @@ func Mkdir(name string, parentID string, auth *Auth) (*DriveItem, error) {
 
 // Rename moves and/or renames an item on the server. The itemName and parentID
 // arguments correspond to the *new* basename or id of the parent.
-func Rename(itemID string, itemName string, parentID string, auth *Auth) error {
+func Rename(ctx context.Context, itemID string, itemName string, parentID string, auth *Auth) error {
 	// start creating patch content for server
 	// mutex does not need to be initialized since it is never used locally
 	patchContent := DriveItem{
@@ -212,13 +213,13 @@ func Rename(itemID string, itemName string, parentID string, auth *Auth) error {
 	// apply patch to server copy - note that we don't actually care about the
 	// response content, only if it returns an error
 	jsonPatch, _ := json.Marshal(patchContent)
-	_, err := Patch("/me/drive/items/"+itemID, auth, bytes.NewReader(jsonPatch))
+	_, err := Patch(ctx, "/me/drive/items/"+itemID, auth, bytes.NewReader(jsonPatch))
 	if err != nil && strings.Contains(err.Error(), "resourceModified") {
 		// Wait a second, then retry the request. The Onedrive servers sometimes
 		// aren't quick enough here if the object has been recently created
 		// (<1 second ago).
 		time.Sleep(time.Second)
-		_, err = Patch("/me/drive/items/"+itemID, auth, bytes.NewReader(jsonPatch))
+		_, err = Patch(ctx, "/me/drive/items/"+itemID, auth, bytes.NewReader(jsonPatch))
 	}
 	return err
 }
@@ -230,10 +231,10 @@ type driveChildren struct {
 }
 
 // this is the internal method that actually fetches an item's children
-func getItemChildren(pollURL string, auth *Auth) ([]*DriveItem, error) {
+func getItemChildren(ctx context.Context, pollURL string, auth *Auth) ([]*DriveItem, error) {
 	fetched := make([]*DriveItem, 0)
 	for pollURL != "" {
-		body, err := Get(pollURL, auth)
+		body, err := Get(ctx, pollURL, auth)
 		if err != nil {
 			return fetched, err
 		}
@@ -243,17 +244,17 @@ func getItemChildren(pollURL string, auth *Auth) ([]*DriveItem, error) {
 		// there can be multiple pages of 200 items each (default).
 		// continue to next interation if we have an @odata.nextLink value
 		fetched = append(fetched, pollResult.Children...)
-		pollURL = strings.TrimPrefix(pollResult.NextLink, GraphURL)
+		pollURL = strings.TrimPrefix(pollResult.NextLink, GetGraphURL())
 	}
 	return fetched, nil
 }
 
 // GetItemChildren fetches all children of an item denoted by ID.
-func GetItemChildren(id string, auth *Auth) ([]*DriveItem, error) {
-	return getItemChildren(childrenPathID(id), auth)
+func GetItemChildren(ctx context.Context, id string, auth *Auth) ([]*DriveItem, error) {
+	return getItemChildren(ctx, childrenPathID(id), auth)
 }
 
 // GetItemChildrenPath fetches all children of an item denoted by path.
-func GetItemChildrenPath(path string, auth *Auth) ([]*DriveItem, error) {
-	return getItemChildren(childrenPath(path), auth)
+func GetItemChildrenPath(ctx context.Context, path string, auth *Auth) ([]*DriveItem, error) {
+	return getItemChildren(ctx, childrenPath(path), auth)
 }

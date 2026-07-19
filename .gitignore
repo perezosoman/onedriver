@@ -55,3 +55,14 @@ debian/files
 *.build*
 *.upload
 *.tar.xz
+
+# Whitelist scripts/validateauth testdata fixtures. The project-wide
+# *.json and *.txt rules above would otherwise silently drop the HTTP
+# response fixtures into the void, causing CI runs to exercise the
+# bash script with empty fixture files and trigger spurious
+# "refresh failed (: )" / "HTTP 200 instead of 401" fail modes.
+!scripts/validateauth/testdata/
+!scripts/validateauth/testdata/auth-fixtures/
+!scripts/validateauth/testdata/auth-fixtures/*/
+!scripts/validateauth/testdata/auth-fixtures/*/*.json
+!scripts/validateauth/testdata/auth-fixtures/*/*.txt

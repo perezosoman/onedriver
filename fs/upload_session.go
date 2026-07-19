@@ -2,6 +2,7 @@ package fs
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -131,7 +132,7 @@ func (u *UploadSession) cancel(auth *graph.Auth) {
 		state := u.getState()
 		if state == uploadStarted || state == uploadErrored {
 			// dont care about result, this is purely us being polite to the server
-			go graph.Delete(u.UploadURL, auth)
+			go graph.Delete(context.Background(), u.UploadURL, auth)
 		}
 	}
 }
@@ -188,7 +189,7 @@ func (u *UploadSession) uploadChunk(auth *graph.Auth, offset uint64) ([]byte, in
 // Upload copies the file's contents to the server. Should only be called as a
 // goroutine, or it can potentially block for a very long time. The uploadSession.error
 // field contains errors to be handled if called as a goroutine.
-func (u *UploadSession) Upload(auth *graph.Auth) error {
+func (u *UploadSession) Upload(ctx context.Context, auth *graph.Auth) error {
 	log.Info().Str("id", u.ID).Str("name", u.Name).Msg("Uploading file.")
 	u.setState(uploadStarted, nil)
 
@@ -213,11 +214,11 @@ func (u *UploadSession) Upload(auth *graph.Auth) error {
 		}
 		// small files handled in this block
 		var err error
-		resp, err = graph.Put(uploadPath, auth, bytes.NewReader(u.Data))
+		resp, err = graph.Put(ctx, uploadPath, auth, bytes.NewReader(u.Data))
 		if err != nil && strings.Contains(err.Error(), "resourceModified") {
 			// retry the request after a second, likely the server is having issues
 			time.Sleep(time.Second)
-			resp, err = graph.Put(uploadPath, auth, bytes.NewReader(u.Data))
+			resp, err = graph.Put(ctx, uploadPath, auth, bytes.NewReader(u.Data))
 		}
 		if err != nil {
 			return u.setState(uploadErrored, fmt.Errorf("small upload failed: %w", err))
@@ -241,7 +242,7 @@ func (u *UploadSession) Upload(auth *graph.Auth) error {
 				LastModifiedDateTime: u.ModTime,
 			},
 		})
-		resp, err := graph.Post(uploadPath, auth, bytes.NewReader(sessionPostData))
+		resp, err := graph.Post(ctx, uploadPath, auth, bytes.NewReader(sessionPostData))
 		if err != nil {
 			return u.setState(uploadErrored, fmt.Errorf("failed to create upload session: %w", err))
 		}
@@ -301,9 +302,9 @@ func (u *UploadSession) Upload(auth *graph.Auth) error {
 			// multipart uploads, so we manually fetch the newly updated item
 			var remotePtr *graph.DriveItem
 			if isLocalID(u.ID) {
-				remotePtr, err = graph.GetItemChild(u.ParentID, u.Name, auth)
+				remotePtr, err = graph.GetItemChild(ctx, u.ParentID, u.Name, auth)
 			} else {
-				remotePtr, err = graph.GetItem(u.ID, auth)
+				remotePtr, err = graph.GetItem(ctx, u.ID, auth)
 			}
 			if err == nil {
 				remote = *remotePtr

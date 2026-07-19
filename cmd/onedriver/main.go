@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -164,7 +165,7 @@ func xdgVolumeInfo(filesystem *fs.Filesystem, auth *graph.Auth) {
 		return
 	}
 	log.Info().Msg("Creating .xdg-volume-info")
-	user, err := graph.GetUser(auth)
+	user, err := graph.GetUser(context.Background(), auth)
 	if err != nil {
 		log.Error().Err(err).Msg("Could not create .xdg-volume-info")
 		return
@@ -174,6 +175,7 @@ func xdgVolumeInfo(filesystem *fs.Filesystem, auth *graph.Auth) {
 	// just upload directly and shove it in the cache
 	// (since the fs isn't mounted yet)
 	resp, err := graph.Put(
+		context.Background(),
 		graph.ResourcePath("/.xdg-volume-info")+":/content",
 		auth,
 		strings.NewReader(xdgVolumeInfo),

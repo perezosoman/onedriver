@@ -1,0 +1,6 @@
+{
+  "error": "invalid_grant",
+  "error_description": "AADSTS70000: The refresh token has expired or is invalid. Trace ID: abcdef",
+  "error_codes": [70000],
+  "timestamp": "2023-11-14 22:00:00Z"
+}

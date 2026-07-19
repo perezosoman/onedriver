@@ -1,0 +1,7 @@
+{
+  "access_token": "new-access-token-rotated-by-microsoft",
+  "refresh_token": "new-refresh-token-microsoft-rotates-these",
+  "expires_in": 3600,
+  "token_type": "Bearer",
+  "scope": "user.read files.readwrite.all offline_access"
+}

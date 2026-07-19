@@ -35,11 +35,11 @@ func (i *Inode) setContent(f *Filesystem, newContent []byte) {
 func TestDeltaMkdir(t *testing.T) {
 	requireAuth(t)
 	t.Parallel()
-	parent, err := graph.GetItemPath("/onedriver_tests/delta", auth)
+	parent, err := graph.GetItemPath(context.Background(), "/onedriver_tests/delta", auth)
 	require.NoError(t, err)
 
 	// create the directory directly through the API and bypass the cache
-	_, err = graph.Mkdir("first", parent.ID, auth)
+	_, err = graph.Mkdir(context.Background(), "first", parent.ID, auth)
 	require.NoError(t, err)
 	fname := filepath.Join(DeltaDir, "first")
 
@@ -64,9 +64,9 @@ func TestDeltaRmdir(t *testing.T) {
 	fname := filepath.Join(DeltaDir, "delete_me")
 	require.NoError(t, os.Mkdir(fname, 0755))
 
-	item, err := graph.GetItemPath("/onedriver_tests/delta/delete_me", auth)
+	item, err := graph.GetItemPath(context.Background(), "/onedriver_tests/delta/delete_me", auth)
 	require.NoError(t, err)
-	require.NoError(t, graph.Remove(item.ID, auth))
+	require.NoError(t, graph.Remove(context.Background(), item.ID, auth))
 
 	// wait for delta sync
 	assert.Eventually(t, func() bool {
@@ -89,12 +89,12 @@ func TestDeltaRename(t *testing.T) {
 	var item *graph.DriveItem
 	var err error
 	require.Eventually(t, func() bool {
-		item, err = graph.GetItemPath("/onedriver_tests/delta/delta_rename_start", auth)
+		item, err = graph.GetItemPath(context.Background(), "/onedriver_tests/delta/delta_rename_start", auth)
 		return err == nil
 	}, 10*time.Second, time.Second, "Could not prepare /onedriver_test/delta/delta_rename_start")
 	inode := NewInodeDriveItem(item)
 
-	require.NoError(t, graph.Rename(inode.ID(), "delta_rename_end", inode.ParentID(), auth))
+	require.NoError(t, graph.Rename(context.Background(), inode.ID(), "delta_rename_end", inode.ParentID(), auth))
 	fpath := filepath.Join(DeltaDir, "delta_rename_end")
 	assert.Eventually(t, func() bool {
 		if _, err := os.Stat(fpath); err == nil {
@@ -121,14 +121,14 @@ func TestDeltaMoveParent(t *testing.T) {
 	var item *graph.DriveItem
 	var err error
 	require.Eventually(t, func() bool {
-		item, err = graph.GetItemPath("/onedriver_tests/delta/delta_move_start", auth)
+		item, err = graph.GetItemPath(context.Background(), "/onedriver_tests/delta/delta_move_start", auth)
 		return err == nil
 	}, 10*time.Second, time.Second)
 
-	newParent, err := graph.GetItemPath("/onedriver_tests/", auth)
+	newParent, err := graph.GetItemPath(context.Background(), "/onedriver_tests/", auth)
 	require.NoError(t, err)
 
-	require.NoError(t, graph.Rename(item.ID, "delta_rename_end", newParent.ID, auth))
+	require.NoError(t, graph.Rename(context.Background(), item.ID, "delta_rename_end", newParent.ID, auth))
 	fpath := filepath.Join(TestDir, "delta_rename_end")
 	assert.Eventually(t, func() bool {
 		if _, err := os.Stat(fpath); err == nil {
@@ -153,7 +153,7 @@ func TestDeltaContentChangeRemote(t *testing.T) {
 
 	// change and upload it via the API
 	time.Sleep(time.Second * 10)
-	item, err := graph.GetItemPath("/onedriver_tests/delta/remote_content", auth)
+	item, err := graph.GetItemPath(context.Background(), "/onedriver_tests/delta/remote_content", auth)
 	inode := NewInodeDriveItem(item)
 	require.NoError(t, err)
 	newContent := []byte("because it has been changed remotely!")
@@ -161,10 +161,10 @@ func TestDeltaContentChangeRemote(t *testing.T) {
 	data := fs.content.Get(inode.ID())
 	session, err := NewUploadSession(inode, &data)
 	require.NoError(t, err)
-	require.NoError(t, session.Upload(auth))
+	require.NoError(t, session.Upload(context.Background(), auth))
 
 	time.Sleep(time.Second * 10)
-	body, _, _ := graph.GetItemContent(inode.ID(), auth)
+	body, _, _ := graph.GetItemContent(context.Background(), inode.ID(), auth)
 	if !bytes.Equal(body, newContent) {
 		t.Fatalf("Failed to upload test file. Remote content: \"%s\"", body)
 	}
@@ -252,7 +252,7 @@ func TestDeltaBadContentInCache(t *testing.T) {
 	))
 	var id string
 	require.Eventually(t, func() bool {
-		item, err := graph.GetItemPath("/onedriver_tests/delta/corrupted", auth)
+		item, err := graph.GetItemPath(context.Background(), "/onedriver_tests/delta/corrupted", auth)
 		if err == nil {
 			id = item.ID
 			return true
@@ -275,9 +275,9 @@ func TestDeltaFolderDeletion(t *testing.T) {
 	requireAuth(t)
 	t.Parallel()
 	require.NoError(t, os.MkdirAll(filepath.Join(DeltaDir, "nested/directory"), 0755))
-	nested, err := graph.GetItemPath("/onedriver_tests/delta/nested", auth)
+	nested, err := graph.GetItemPath(context.Background(), "/onedriver_tests/delta/nested", auth)
 	require.NoError(t, err)
-	require.NoError(t, graph.Remove(nested.ID, auth))
+	require.NoError(t, graph.Remove(context.Background(), nested.ID, auth))
 
 	// now poll and wait for deletion
 	assert.Eventually(t, func() bool {

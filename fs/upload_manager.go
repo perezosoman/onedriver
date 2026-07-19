@@ -1,6 +1,7 @@
 package fs
 
 import (
+	"context"
 	"encoding/json"
 	"time"
 
@@ -93,7 +94,7 @@ func (u *UploadManager) uploadLoop(duration time.Duration) {
 					// side throttling that can cause errors.
 					if u.inFlight < maxUploadsInFlight {
 						u.inFlight++
-						go session.Upload(u.auth)
+						go session.Upload(context.Background(), u.auth)
 					}
 
 				case uploadErrored:

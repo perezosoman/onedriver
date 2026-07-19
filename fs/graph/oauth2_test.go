@@ -29,11 +29,11 @@ func TestAuthFromfile(t *testing.T) {
 	if !AuthAvailable {
 		t.Skip("OneDrive credentials not available")
 	}
-	require.FileExists(t, ".auth_tokens.json")
+	require.FileExists(t, authTokenPath)
 
 	var auth Auth
-	auth.FromFile(".auth_tokens.json")
-	assert.NotEqual(t, "", auth.AccessToken, "Could not load auth tokens from '.auth_tokens.json'!")
+	auth.FromFile(authTokenPath)
+	assert.NotEqual(t, "", auth.AccessToken, "Could not load auth tokens!")
 }
 
 func TestAuthRefresh(t *testing.T) {
@@ -46,10 +46,10 @@ func TestAuthRefresh(t *testing.T) {
 	if os.Getenv("ONEDRIVER_MOCK") != "1" {
 		t.Skip("Skipping forced refresh test with real credentials (would open GUI)")
 	}
-	require.FileExists(t, ".auth_tokens.json")
+	require.FileExists(t, authTokenPath)
 
 	var auth Auth
-	auth.FromFile(".auth_tokens.json")
+	auth.FromFile(authTokenPath)
 	auth.ExpiresAt = 0 // force an auth refresh
 	auth.Refresh()
 	if auth.ExpiresAt <= time.Now().Unix() {
