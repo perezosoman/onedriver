@@ -190,7 +190,15 @@ jobs:
           parallel: true
         # decreased coverage isn't a failure
         continue-on-error: true
-        if: always()
+        # Only report coverage when the run actually exercised real auth + FUSE
+        # tests. In ONEDRIVER_MOCK=1 mode (no real OneDrive credentials, which
+        # is the default for forks without the secret set) the ./fs/ and
+        # ./fs/offline/ tests are skipped and replaced with empty coverage
+        # files, which would otherwise inflate the delta against main and
+        # produce misleading -16.6% style drops in PR reviews. We AND with
+        # always() so coverage still gets reported if earlier steps (tests,
+        # lcov convert) failed in real-auth mode.
+        if: always() && env.ONEDRIVER_MOCK != '1'
   finish:
     name: Complete Coveralls run
     needs: test
