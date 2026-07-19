@@ -218,9 +218,25 @@ if [ "$AUTH_VALID" != "true" ]; then
   dd if=/dev/urandom of=dmel.fa bs=1024 count=1024 2>/dev/null
 fi
 
-# Sanitize outputs (no token leakage in CI logs).
-AUTH_REASON_SAFE=$(printf '%s' "$AUTH_REASON" | tr '\n' ' ' | head -c 250)
-AUTH_USER_SAFE=$(printf '%s' "$AUTH_USER" | tr '\n' ' ' | head -c 100)
+# Sanitize outputs (no PII leakage in CI logs).
+# - tr '\n' ' ' collapses multi-line reasons into one line.
+# - head -c 250 caps length so a runaway token field can't blow up the log.
+# - sed redacts any email address that snuck into the human-readable
+#   reason (e.g. "(user: paveryutu72@hotmail.com, ...)").
+# The visible success / failure echoes below also apply the same sed.
+AUTH_REASON_SAFE=$(printf '%s' "$AUTH_REASON" | tr '\n' ' ' | head -c 250 \
+  | sed -E 's/([a-zA-Z0-9._%+-]+)@([a-zA-Z0-9.-]+\.[a-zA-Z]{2,})/*****@REDACTED/g')
+
+# Never emit the raw userPrincipalName / email to $GITHUB_OUTPUT. The
+# presence of a non-empty auth_user signals "we identified someone";
+# the actual identity stays out of every CI log line and PR comment.
+# Downstream steps (e.g. ci.yml) only check auth_valid, never auth_user,
+# so this is purely PII hygiene.
+if [ -n "$AUTH_USER" ] && [ "$AUTH_USER" != "unknown" ]; then
+  AUTH_USER_OUTPUT='user-*****@REDACTED'
+else
+  AUTH_USER_OUTPUT=''
+fi
 
 # Multi-line heredoc syntax for auth_reason — GitHub Actions special form.
 {
@@ -228,7 +244,7 @@ AUTH_USER_SAFE=$(printf '%s' "$AUTH_USER" | tr '\n' ' ' | head -c 100)
   echo "auth_reason<<EOF_REASON"
   echo "$AUTH_REASON_SAFE"
   echo "EOF_REASON"
-  echo "auth_user=$AUTH_USER_SAFE"
+  echo "auth_user=$AUTH_USER_OUTPUT"
 } >> "$GITHUB_OUTPUT_FILE"
 
 if [ -n "${VALIDATE_AUTH_FIXTURES_DIR:-}" ]; then
