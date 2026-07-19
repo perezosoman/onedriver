@@ -120,7 +120,7 @@ func TestMain(m *testing.M) {
 		auth = graph.Authenticate(graph.AuthConfig{}, authTokenPath, false)
 	}
 	fs = NewFilesystem(auth, filepath.Join(testDBLoc, "test"))
-	server, _ := fuse.NewServer(
+	server, err := fuse.NewServer(
 		fs,
 		mountLoc,
 		&fuse.MountOptions{
@@ -130,6 +130,33 @@ func TestMain(m *testing.M) {
 			MaxBackground: 1024,
 		},
 	)
+	if err != nil {
+		// fuse.NewServer can fail when FUSE is unavailable — typically in
+		// Docker CI runners where /dev/fuse is not mounted, but also when
+		// running locally without fuse3 installed or without permission.
+		log.Error().Err(err).Msg("Failed to create FUSE server")
+		if os.Getenv("CI") != "" || os.Getenv("ONEDRIVER_MOCK") == "1" {
+			// CI / mock mode: the test binary used to start a Serve()
+			// goroutine on a nil server here, which segfaulted deep inside
+			// go-fuse and aborted the whole test process with SIGSEGV.
+			// Instead, skip FUSE-dependent tests via the existing
+			// requireAuth() gate and run the rest of the suite.
+			log.Warn().Msg("⚠️  Skipping FUSE-dependent tests (no FUSE in CI/mock mode)")
+			fmt.Println("⚠️  Skipping FUSE-dependent tests — FUSE unavailable in CI/mock mode")
+			skipAuthTests = true
+			code := m.Run()
+			os.Exit(code)
+		}
+		// Local mode: surface a clear actionable error so the developer
+		// knows exactly what to install.
+		fmt.Fprintf(os.Stderr, "\nfusefs_tests: failed to create FUSE server: %v\n\n", err)
+		fmt.Fprintf(os.Stderr, "fs/ tests require a working FUSE mount. Install fuse3:\n")
+		fmt.Fprintf(os.Stderr, "  Debian/Ubuntu:  sudo apt-get install fuse3\n")
+		fmt.Fprintf(os.Stderr, "  Fedora/RHEL:    sudo dnf install fuse3\n")
+		fmt.Fprintf(os.Stderr, "  macOS (brew):   brew install macfuse\n")
+		fmt.Fprintf(os.Stderr, "Or grant /dev/fuse access to your user.\n")
+		os.Exit(1)
+	}
 
 	// setup sigint handler for graceful unmount on interrupt/terminate
 	sigChan := make(chan os.Signal, 1)
