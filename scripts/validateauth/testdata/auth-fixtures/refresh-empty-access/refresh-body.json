@@ -1,0 +1,7 @@
+{
+  "access_token": "",
+  "refresh_token": "irrelevant",
+  "expires_in": 3600,
+  "error": "invalid_grant",
+  "error_description": "AADSTS70000: refresh failed"
+}
