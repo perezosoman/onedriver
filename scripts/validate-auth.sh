@@ -237,8 +237,10 @@ fi
 
 if [ "$AUTH_VALID" = "true" ]; then
   echo "✅ ONEDRIVER_AUTH_TOKENS validation passed"
-  echo "   $AUTH_REASON"
+  # Show the reason but hide the email address in the log. 
+  echo "  $AUTH_REASON" | sed -E 's/([a-zA-Z0-9._%+-]+)@([a-zA-Z0-9.-]+\.[a-zA-Z]{2,})/*****@REDACTED/g'
+  
 else
   echo "⚠️  ONEDRIVER_AUTH_TOKENS invalid — falling back to mock Graph API"
-  echo "   $AUTH_REASON"
+  echo "   $AUTH_REASON" | sed -E 's/([a-zA-Z0-9._%+-]+)@([a-zA-Z0-9.-]+\.[a-zA-Z]{2,})/*****@REDACTED/g'
 fi
