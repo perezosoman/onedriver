@@ -18,27 +18,29 @@ import (
 
 // these are default values if not specified
 const (
-	authClientID    = "3470c3fa-bc10-45ab-a0a9-2d30836485d1"
-	authCodeURL     = "https://login.microsoftonline.com/common/oauth2/v2.0/authorize"
-	authTokenURL    = "https://login.microsoftonline.com/common/oauth2/v2.0/token"
-	authRedirectURL = "https://login.live.com/oauth20_desktop.srf"
+	authClientID       = "3470c3fa-bc10-45ab-a0a9-2d30836485d1"
+	authCodeURL        = "https://login.microsoftonline.com/common/oauth2/v2.0/authorize"
+	authTokenURL       = "https://login.microsoftonline.com/common/oauth2/v2.0/token"
+	authRedirectURL    = "https://login.live.com/oauth20_desktop.srf"
+	allowTLSWorkaround = false
 )
 
 func (a *AuthConfig) applyDefaults() error {
 	return mergo.Merge(a, AuthConfig{
-		ClientID:    authClientID,
-		CodeURL:     authCodeURL,
-		TokenURL:    authTokenURL,
-		RedirectURL: authRedirectURL,
+		ClientID:           authClientID,
+		CodeURL:            authCodeURL,
+		TokenURL:           authTokenURL,
+		RedirectURL:        authRedirectURL,
+		AllowTLSWorkaround: allowTLSWorkaround,
 	})
 }
 
 // AuthConfig configures the authentication flow
 type AuthConfig struct {
-	ClientID            string `json:"clientID" yaml:"clientID"`
-	CodeURL             string `json:"codeURL" yaml:"codeURL"`
-	TokenURL            string `json:"tokenURL" yaml:"tokenURL"`
-	RedirectURL         string `json:"redirectURL" yaml:"redirectURL"`
+	ClientID    string `json:"clientID" yaml:"clientID"`
+	CodeURL     string `json:"codeURL" yaml:"codeURL"`
+	TokenURL    string `json:"tokenURL" yaml:"tokenURL"`
+	RedirectURL string `json:"redirectURL" yaml:"redirectURL"`
 	// AllowTLSWorkaround disables strict TLS certificate verification for the
 	// Microsoft authentication domains during the OAuth2 flow. This exists as
 	// a workaround for a known certificate-verification bug on some Fedora
