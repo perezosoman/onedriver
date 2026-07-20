@@ -51,3 +51,7 @@ debian/files
 *.build*
 *.upload
 *.tar.xz
+docs/
+.agents/
+.qwen/
+AGENT.md
